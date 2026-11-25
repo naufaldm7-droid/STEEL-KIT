@@ -1,0 +1,75 @@
+<UserControl x:Class="SteelKit.Acad.Ui.BrowserView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:SteelKit.Acad.Ui"
+             FontFamily="{DynamicResource SkFont}" Foreground="{DynamicResource SkText}"
+             TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
+    <UserControl.Resources>
+        <ResourceDictionary Source="/SteelKit;component/Ui/Theme.xaml"/>
+    </UserControl.Resources>
+    <Border Background="{StaticResource SkWindowSolid}">
+        <Grid Margin="10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="1.25*"/>
+                <RowDefinition Height="10"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- judul -->
+            <StackPanel Orientation="Horizontal" Margin="2,0,0,10">
+                <Image Source="{StaticResource SkLogo}" Width="20" Height="20"/>
+                <TextBlock Text="STEEL KIT" FontFamily="{StaticResource SkFontDisplay}" FontWeight="Bold" FontSize="13" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                <TextBlock Text="  Browser model" FontSize="12.5" Foreground="{StaticResource SkText2}" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- kelompok + cari -->
+            <Grid Grid.Row="1" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <ComboBox x:Name="GroupBox" Style="{StaticResource SkCombo}" SelectionChanged="OnGroup"/>
+                <Grid Grid.Column="2">
+                    <TextBox x:Name="Filter" Style="{StaticResource SkField}" Padding="26,0,6,0" TextChanged="OnFilter"/>
+                    <TextBlock Text="&#xE721;" FontFamily="{StaticResource SkIcons}" FontSize="11" Foreground="{StaticResource SkText3}" Margin="9,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                </Grid>
+                <Button Grid.Column="3" Style="{StaticResource SkIconBtn}" Content="&#xE72C;" Margin="8,0,0,0" ToolTip="Muat ulang dari gambar" Click="OnReload"/>
+            </Grid>
+
+            <!-- aksi cepat -->
+            <WrapPanel Grid.Row="2" x:Name="Quick" Margin="0,0,0,8"/>
+
+            <!-- pohon -->
+            <Border Grid.Row="3" Style="{StaticResource SkCard}" Padding="6">
+                <TreeView x:Name="Tree" Style="{StaticResource SkTree}" SelectedItemChanged="OnSelect" MouseDoubleClick="OnZoom">
+                    <TreeView.ItemTemplate>
+                        <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="7" Height="7" Fill="{Binding Dot}" Margin="0,0,7,0" VerticalAlignment="Center" Visibility="{Binding DotVisible}"/>
+                                    <TextBlock Text="{Binding Text}" FontWeight="{Binding Weight}" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding Info}" Foreground="#6B7B8E" FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                            </Grid>
+                        </HierarchicalDataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
+            </Border>
+
+            <!-- properti -->
+            <Border Grid.Row="5" Style="{StaticResource SkCard}" Padding="12,10">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" x:Name="PropsTitle" Text="PROPERTI" Style="{StaticResource SkLabel}" FontSize="10"/>
+                    <Grid>
+                        <ui:PropertyPanel x:Name="Props"/>
+                        <TextBlock x:Name="PropsEmpty" Text="Pilih batang atau sambungan di daftar di atas." Foreground="{StaticResource SkText3}" FontSize="12" TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+                </DockPanel>
+            </Border>
+
+            <TextBlock Grid.Row="6" x:Name="Status" FontSize="11" Foreground="{StaticResource SkText2}" Margin="2,8,0,0" TextWrapping="Wrap"/>
+        </Grid>
+    </Border>
+</UserControl>

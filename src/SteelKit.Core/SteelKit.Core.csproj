@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Logika murni (tanpa AutoCAD): geometri penampang, properti, katalog. Dipakai uji unit.
+       Proyek SteelKit.Acad mengompilasi file .cs yang sama langsung ke dalam DLL plugin. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>SteelKit.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Data\profiles.csv" LogicalName="SteelKit.profiles.csv" />
+  </ItemGroup>
+</Project>

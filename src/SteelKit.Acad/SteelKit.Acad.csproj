@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Satu DLL per generasi AutoCAD:
+       net48            -> AutoCAD 2021-2024 (R24)
+       net8.0-windows   -> AutoCAD 2025-2026 (R25)
+       net10.0-windows  -> AutoCAD 2027      (R26) -->
+  <PropertyGroup>
+    <TargetFrameworks>net48;net8.0-windows;net10.0-windows</TargetFrameworks>
+    <AssemblyName>SteelKit</AssemblyName>
+    <RootNamespace>SteelKit.Acad</RootNamespace>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <PlatformTarget>x64</PlatformTarget>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\SteelKit.Core\**\*.cs" Exclude="..\SteelKit.Core\obj\**;..\SteelKit.Core\bin\**" Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\SteelKit.Core\Data\profiles.csv" LogicalName="SteelKit.profiles.csv" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="AutoCAD.NET" Version="24.0.0" ExcludeAssets="runtime" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <PackageReference Include="AutoCAD.NET" Version="25.0.1" ExcludeAssets="runtime" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <PackageReference Include="AutoCAD.NET" Version="26.0.0" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>

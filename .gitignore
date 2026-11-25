@@ -1,0 +1,8 @@
+bin/
+obj/
+dist/
+*.user
+.vs/
+tools/smoke/out/
+src/SteelKit.Setup/payload.zip
+__pycache__/

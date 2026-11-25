@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Penginstal satu berkas: SteelKitSetup.exe (klik ganda, tanpa hak admin).
+       Isi bundle (payload.zip) disisipkan oleh tools/build_bundle.py sebelum build. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>SteelKitSetup</AssemblyName>
+    <RootNamespace>SteelKit.Setup</RootNamespace>
+    <UseWPF>true</UseWPF>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <ApplicationIcon>..\..\assets\logo.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Product>Steel Kit</Product>
+    <Description>Penginstal Steel Kit untuk AutoCAD</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Page Include="..\SteelKit.Acad\Ui\Theme.xaml" Link="Ui\Theme.xaml" />
+    <Compile Include="..\SteelKit.Acad\Ui\Glass.cs" Link="Ui\Glass.cs" />
+    <EmbeddedResource Include="payload.zip" LogicalName="payload.zip" Condition="Exists('payload.zip')" />
+  </ItemGroup>
+</Project>

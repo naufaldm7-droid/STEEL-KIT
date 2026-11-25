@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Pembantu suara Steel Kit: proses terpisah supaya pustaka Whisper tidak bentrok dengan AutoCAD
+       dan gangguan mesin suara tidak pernah menutup AutoCAD. Satu exe untuk AutoCAD 2021-2027. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>SteelKitSuara</AssemblyName>
+    <RootNamespace>SteelKit.Voice</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <ApplicationIcon>..\..\assets\logo.ico</ApplicationIcon>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+</Project>
