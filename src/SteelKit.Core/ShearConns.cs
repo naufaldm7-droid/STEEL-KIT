@@ -270,6 +270,9 @@ namespace SteelKit.Core
         [Category("2. Cleat"), DisplayName("Tinggi cleat (mm)")] public double TinggiCleat { get; set; }
         [Category("2. Cleat"), DisplayName("Tinggi as baut dari sayap rafter (mm)")] public double TinggiBaut { get; set; }
         [Category("2. Cleat"), DisplayName("Las cleat ke rafter a (mm)")] public double Las { get; set; }
+        [Category("2. Cleat"), DisplayName("Pengaku cleat"), Description("Pelat segitiga di belakang cleat, dilas ke cleat dan sayap rafter. Satu di tengah (baut genap) atau dua di tepi (baut ganjil).")]
+        public bool PengakuCleat { get; set; }
+        [Category("2. Cleat"), DisplayName("Tebal pengaku cleat (mm)")] public double TebalPengakuCleat { get; set; }
 
         [Category("3. Baut"), DisplayName("Diameter baut")] public BoltSize Baut { get; set; } = BoltSize.M12;
         [Category("3. Baut"), DisplayName("Mutu baut")] public BoltGrade Mutu { get; set; } = BoltGrade.Kelas4_6;
@@ -291,6 +294,8 @@ namespace SteelKit.Core
             JarakBaut = Fmt.Round5(Math.Max(3 * b.D, 50));
             LebarCleat = Fmt.Round10(Math.Max((JumlahBaut - 1) * JarakBaut + 2 * e, 80));
             Las = Math.Max(4, Fmt.MinFillet(TebalCleat));
+            TebalPengakuCleat = TebalCleat;
+            PengakuCleat = Hp >= 200;          // gording tinggi: cleat diberi pengaku (praktik umum)
         }
 
         public override ConnResult Build()
@@ -305,6 +310,23 @@ namespace SteelKit.Core
             double len = 0;
             foreach (var x in xs) len = r.Bolt(new Vec3(x, face - tc, TinggiBaut), Vec3.UnitY, tc + tg, b);
             r.AddBoq("Baut", "Baut " + Baut + "x" + Fmt.N(len) + " " + Grades.Label(Mutu) + " + mur + 2 ring", JumlahBaut, BoltKg(b, len));
+            // pengaku segitiga di belakang cleat (sisi kepala baut), tidak menabrak kepala baut
+            if (PengakuCleat)
+            {
+                double ts = TebalPengakuCleat > 0 ? TebalPengakuCleat : tc, ls = Fmt.Round5(Math.Max(0.6 * hc, 50)), hz = Fmt.Round5(0.8 * hc);
+                var spots = JumlahBaut % 2 == 0 ? new List<double> { 0 } : new List<double> { -wc / 2 + ts / 2, wc / 2 - ts / 2 };
+                double headR = b.Across / Math.Sqrt(3);
+                foreach (var sxp in spots)
+                {
+                    var fr = new Frame(new Vec3(sxp, 0, 0), Vec3.UnitY, Vec3.UnitZ, Vec3.UnitX);     // bidang (y, z), tebal arah x
+                    var pts = new List<Vec2> { new Vec2(face - tc, 10), new Vec2(face - tc - 10, 0), new Vec2(face - tc - ls, 0), new Vec2(face - tc, hz) };
+                    var st = r.Prism(PartKind.Pengaku, "", fr, Shapes.Filleted(pts, null), -ts / 2, ts / 2);
+                    r.AddBoq("Pelat", Pl(ls, hz, ts) + " (pengaku cleat)", 1, st.MassKg());
+                    double gap = xs.Count == 0 ? double.MaxValue : xs.Min(x => Math.Abs(x - sxp)) - ts / 2 - headR;
+                    r.Rule(gap >= 3 - 1e-6, "Pengaku cleat bebas dari kepala baut (" + Fmt.N(gap) + " ≥ 3 mm)", "ruang kunci, praktik umum");
+                }
+                WeldBoq(r, Math.Max(4, Fmt.MinFillet(ts)), spots.Count * 2 * (ls + hz), "pengaku cleat ke cleat & rafter, dua sisi");
+            }
             double Lg = Math.Max(2 * Hp, 400), Hr = Sec.H(raf);
             Stub(r, g, new Frame(new Vec3(-Lg, 0, Hp / 2), Vec3.UnitY, Vec3.UnitZ, Vec3.UnitX), 0, 2 * Lg);
             Stub(r, raf, new Frame(new Vec3(0, -Math.Max(Hr, 300), -Hr / 2), -Vec3.UnitX, Vec3.UnitZ, Vec3.UnitY), 0, 2 * Math.Max(Hr, 300));

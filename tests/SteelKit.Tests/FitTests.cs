@@ -131,6 +131,44 @@ namespace SteelKit.Tests
             Assert.NotEqual(ms[0].Mark, ms[2].Mark);
         }
 
+        [Fact]
+        public void New_connection_options_build_the_expected_parts()
+        {
+            int Stiff(Connection c) { c.Recommend(); return c.Build().Parts.Count(p => p.Kind == PartKind.Pengaku); }
+            Assert.Equal(0, Stiff(new BasePlate { Kolom = "WF400x200x8x13" }));
+            Assert.Equal(2, Stiff(new BasePlate { Kolom = "WF400x200x8x13", PolaPengaku = StiffenerLayout.Badan2 }));
+            Assert.Equal(4, Stiff(new BasePlate { Kolom = "WF400x200x8x13", PolaPengaku = StiffenerLayout.Sayap4 }));
+            Assert.Equal(6, Stiff(new BasePlate { Kolom = "WF400x200x8x13", PolaPengaku = StiffenerLayout.BadanSayap6 }));
+            Assert.Equal(2, Stiff(new BasePlate { Kolom = "WF400x200x8x13", Pengaku = true }));          // pengaturan lama tetap terbaca
+            // pengaku badan kolom tiap 1500 di kolom 6000: level 1500, 3000, 4500 (6000 terlalu dekat ujung), 2 sisi
+            Assert.Equal(6, Stiff(new BasePlate { Kolom = "WF400x200x8x13", JarakPengakuKolom = 1500, PanjangKolom = 6000 }));
+
+            var cl = new PurlinCleat { Gording = "C250x75x25x4.5", Rafter = "WF450x200x9x14", JumlahBaut = 2 };
+            Assert.Equal(1, Stiff(cl));
+            cl = new PurlinCleat { Gording = "C250x75x25x4.5", Rafter = "WF450x200x9x14", JumlahBaut = 3 };
+            Assert.Equal(2, Stiff(cl));
+
+            var g = new BracingGusset { Host = "WF400x200x8x13", Brace = "L75x75x8", SudutBrace = 45 };
+            g.Recommend();
+            var plate = g.Build().Parts.First(p => p.Label == "pelat buhul");
+            var v = plate.Outline.Vertices;
+            Assert.Equal(4, v.Count);                                                               // trapesium
+            Assert.Equal(2, v.Count(q => Math.Abs(q.Y - v.Min(w => w.Y)) < 1e-6));                 // alas datar di muka host
+            Assert.Equal(2, v.Count(q => Math.Abs(q.Y - v.Max(w => w.Y)) < 1e-6));                 // sisi atas sejajar alas
+
+            var apex = new SplicePlate { Profil = "WF400x200x8x13", Sudut = 10, HaunchPuncak = true };
+            apex.Recommend();
+            var ra = apex.Build();
+            Assert.Equal(2, ra.Parts.Count(p => p.Label == "badan haunch puncak"));
+            Assert.Equal(2, ra.Parts.Count(p => p.Label == "sayap haunch puncak"));
+            Assert.True(ra.AllOk, string.Join(" | ", ra.Checks.Where(c => !c.Ok)));
+
+            var ep = new EndPlate { Balok = "WF600x200x11x17", Kolom = "H400x400x13x21", BarisTambahan = 2, JarakBaris = 100 };
+            ep.Recommend(); ep.BarisTambahan = 2; ep.JarakBaris = 100;
+            var shanks = ep.Build().Parts.Where(p => p.Kind == PartKind.Baut && p.Outline.Vertices.Count <= 4).Select(p => Math.Round(p.F.O.Z)).Distinct().OrderByDescending(z => z).ToList();
+            Assert.Contains(shanks, z => shanks.Contains(z - 100));                                 // baris tambahan berjarak 100
+        }
+
         static bool Crosses(MemberProposal a, MemberProposal b)
         {
             // titik terdekat kedua garis berada di dalam kedua batang (bukan di perpanjangannya)

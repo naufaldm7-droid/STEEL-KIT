@@ -189,6 +189,8 @@ namespace SteelKit.Core
     /// Pelat buhul bracing (siku / plat / hollow / pipa) dilas ke sayap atau badan kolom/balok, opsional juga ke batang
     /// kedua (buhul sudut balok-kolom). Frame lokal: asal = as host di titik temu, X = as host, Y = ke sisi bracing, Z = normal pelat.
     /// </summary>
+    public enum GussetShape { Trapesium, Otomatis }
+
     public class BracingGusset : Connection
     {
         public override ConnType Type => ConnType.BracingBuhul;
@@ -205,6 +207,8 @@ namespace SteelKit.Core
         [Category("2. Pelat"), DisplayName("Celah ujung bracing (mm)")] public double Celah { get; set; } = 20;
         [Category("2. Pelat"), DisplayName("Tepi pelat dari baut (mm)")] public double TepiPelat { get; set; }
         [Category("2. Pelat"), DisplayName("Las pelat ke host a (mm)")] public double Las { get; set; }
+        [Category("2. Pelat"), DisplayName("Bentuk pelat"), Description("Trapesium = alas di muka host, sisi atas sejajar alas (mudah dipotong & dilas). Otomatis = mengikuti bracing sekecil mungkin. Buhul sudut (batang kedua) selalu otomatis.")]
+        public GussetShape Bentuk { get; set; } = GussetShape.Trapesium;
 
         [Category("3. Sambung bracing"), DisplayName("Metode")] public GussetMethod Metode { get; set; } = GussetMethod.Baut;
         [Category("3. Sambung bracing"), DisplayName("Diameter baut")] public BoltSize Baut { get; set; } = BoltSize.M16;
@@ -292,6 +296,15 @@ namespace SteelKit.Core
                 weld += 2 * 150;
             }
             var hull = Projection.Hull(pts.Where(p => p.Y >= f - 1e-6).ToList());
+            if (Bentuk == GussetShape.Trapesium && h2 == null)
+            {
+                // trapesium: alas di muka host (y = f), sisi atas sejajar alas di titik tertinggi, sisi miring memuat seluruh daerah bracing
+                var up = pts.Where(q => q.Y > f + 1).ToList();
+                double xa = Math.Floor(xs0 / 5) * 5, xb = Math.Ceiling(xs1 / 5) * 5, yTop = Math.Ceiling(up.Max(q => q.Y) / 5) * 5;
+                double xt0 = up.Min(q => xa + (q.X - xa) * (yTop - f) / (q.Y - f)), xt1 = up.Max(q => xb + (q.X - xb) * (yTop - f) / (q.Y - f));
+                xt0 = Math.Floor(Math.Min(xt0, xb - 30) / 5) * 5; xt1 = Math.Ceiling(Math.Max(xt1, xa + 30) / 5) * 5;
+                hull = new List<Vec2> { new Vec2(xa, f), new Vec2(xb, f), new Vec2(xt1, yTop), new Vec2(xt0, yTop) };
+            }
             var g = r.Prism(PartKind.Pelat, "pelat buhul", new Frame(new Vec3(0, 0, zMid), Vec3.UnitX, Vec3.UnitY, Vec3.UnitZ), Shapes.Filleted(hull, null), -tg / 2, tg / 2);
             r.AddBoq("Pelat", "PL t=" + Fmt.N(tg) + " (pelat buhul bracing)", 1, g.MassKg());
             WeldBoq(r, Las, weld, "pelat buhul ke host, dua sisi");

@@ -51,6 +51,7 @@ namespace SteelKit.Acad
             lt.UpgradeOpen();
             var id = lt.Add(rec);
             tr.AddNewlyCreatedDBObject(rec, true);
+            Std.LayerWeights(tr, db);
             return id;
         }
 

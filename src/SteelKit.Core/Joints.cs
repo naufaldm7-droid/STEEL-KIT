@@ -58,6 +58,8 @@ namespace SteelKit.Core
         /// <summary>Batang tambahan (buhul truss): indeks dan ujung.</summary>
         public List<int> More = new List<int>();
         public List<bool> MoreAtStart = new List<bool>();
+        /// <summary>Batang yang hanya dilubangi baut sambungan ini (tidak dipotong, ujungnya tidak dipakai), mis. balok di bawah tiang.</summary>
+        public List<int> Drill = new List<int>();
         public Frame Frame;
         public Connection Conn;
         public List<string> Notes = new List<string>();
@@ -135,7 +137,7 @@ namespace SteelKit.Core
                     bool touches = ms.Where((o, i) => i != c && !o.IsPurlin).Any(o => (o.At(o.Param(P)) - P).Length <= 0.5 * Math.Max(o.Depth, m.Depth) + extraTol);
                     if (touches) continue;
                     m.Axes3(out Vec3 x, out Vec3 y, out Vec3 _);
-                    var bp = new BasePlate { Kolom = m.Profile.Name };
+                    var bp = new BasePlate { Kolom = m.Profile.Name, PanjangKolom = Math.Round(m.Length) };
                     bp.Pola = fam == Family.HOLLOW || fam == Family.CHS ? AnchorPattern.Luar4 : AnchorPattern.Luar4;
                     bp.Recommend();
                     joints.Add(new Joint { Type = ConnType.PelatDasar, Support = c, SupportAtStart = startLow, SupportEndUsed = true, Frame = new Frame(P, x, y, Vec3.UnitZ), Conn = bp });

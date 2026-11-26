@@ -20,8 +20,20 @@ klik *More info* → *Run anyway*. Copot kapan saja dari Pengaturan Windows › 
 - **Batang 3D/2D** dengan grip regang & putar, tetap konsisten setelah MOVE/ROTATE/COPY/MIRROR.
 - **28 jenis sambungan** bergambar teknik dengan rekomendasi pemakaian dan cek jarak/ukuran minimum;
   batang dipotong, diperpanjang, di-coping dan dipotong tegak rapat ke pelat otomatis.
+- **Asisten mengenal istilah teknik umum** (Indonesia/Inggris, dan ejaan berlogat dari pengenal suara): kanopi/canopy/carport,
+  kantilever/cantilever, menara/tower air, jembatan/bridge/JPO, rangka batang/truss, gelagar/girder, frame, column/tiang,
+  beam, purlin, brace/ikatan angin, span/height/spacing. Bentuk baru: **kanopi kantilever** (satu sisi atau T), kanopi dua
+  kolom, **menara rangka 4 kaki**, **jembatan rangka (Pratt)** dan jembatan gelagar. Kosakata suara Whisper diperluas.
+- **Opsi sambungan** (semua bisa diubah, nilai bawaan praktik umum, dicek aturan jarak/ukuran minimum):
+  apex haunch di sambungan puncak; pengaku pelat dasar tanpa/2 segaris badan/4 segaris sayap/6; pengaku badan kolom
+  tiap sekian mm sepanjang kolom (sudut di-snipe); pelat buhul bracing trapesium atau otomatis; cleat gording dengan
+  pengaku; jarak baris baut tambahan tetap atau dibagi rata di pelat ujung, puncak, dan lutut.
+- **Standar gambar**: huruf ISOCPEUR, tinggi teks ISO 1,8/2,5/3,5/5 mm, tebal garis per layer, tabel rata kiri/kanan,
+  leader 45° dengan landasan mendatar yang tidak bertumpuk atau menyilang.
 - **Model 3D bebas tabrakan**: baut mengebor lubang standar di batang yang dilaluinya, rod bracing lewat lubang
-  lonjong di badan host, pengaku kolom diberi snipe di radius sudut profil, ring miring rata dengan badan.
+  lonjong di badan host, pengaku kolom diberi snipe di radius sudut profil, ring miring rata dengan badan;
+  balok miring yang hanya ditopang satu kolom (kanopi T) memakai pelat tutup miring dengan puncak kolom dipotong
+  sejajar pelat; balok anak rata-atas di-coping atas & bawah; pelat buhul sudut dibatasi batang yang sebidang.
   **`SKBENTROK`** mengecek tabrakan 3D batang & sambungan dan menggambar irisannya di layer `SK-BENTROK`.
 - **Gambar kerja** (`SKLAYOUT`): lembar struktur (isometrik, denah, tampak) dengan grid as & gelembung, dimensi antar as,
   penanda elevasi, marking batang, catatan umum, kotak judul lengkap (proyek, no. gambar, lembar x/n, revisi) dan

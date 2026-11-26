@@ -226,6 +226,7 @@ namespace SteelKit.Core
                 double tk = mk.Param(q);
                 if ((mk.At(tk) - q).Length > 0.5 * Math.Max(mk.Depth, mh.Depth) + extraTol) continue;
                 if (Math.Abs(mk.Dir.Dot(X)) > 0.95) continue;
+                if (Math.Abs(mk.Dir.Dot(Z)) > 0.5) continue;           // tegak lurus bidang buhul (mis. pengaku muka sebelah di sudut menara): bukan batang kedua
                 var far = (mk.CS - q).Length > (mk.CE - q).Length ? mk.CS : mk.CE;
                 var u2 = (far - q); u2 = (u2 - Z * u2.Dot(Z)).Unit;
                 if (u2.Dot(Y) < 0) continue;
@@ -276,6 +277,29 @@ namespace SteelKit.Core
                 // titik pada as kolom setinggi muka bawah balok
                 double s = ((Q - yb * hb) - P).Dot(yb) / Math.Max(up.Dot(yb), 0.2);
                 var O = P + up * s;
+                // balok miring yang hanya ditopang kolom ini (kanopi T, tidak ada kolom lain di bawahnya) -> pelat tutup miring
+                bool sole = !ms.Where((o, i) => i != col && i != beam && o.IsVertical).Any(o =>
+                {
+                    foreach (var pt in new[] { o.CS, o.CE })
+                    {
+                        double t = mbm.Param(pt);
+                        if (t < -0.02 || t > 1.02) continue;
+                        if ((mbm.At(t) - pt).Length <= 0.5 * Math.Max(o.Depth, mbm.Depth) + 50) return true;
+                    }
+                    return false;
+                });
+                if (Math.Abs(slope) > 2 && sole)
+                {
+                    var X = mbm.Dir.Z >= 0 ? mbm.Dir : -mbm.Dir;
+                    var Z = yb.Z >= 0 ? yb : -yb; var Y = Z.Cross(X);
+                    var hx = new Vec3(X.X, X.Y, 0).Unit;
+                    var cp = new CapPlate { Kolom = mc.Profile.Name, Balok = mbm.Profile.Name, Sudut = Math.Round(Deg(Math.Asin(Math.Min(1, X.Z))), 2),
+                        Orientasi = Math.Abs(hx.Dot(yc)) >= Math.Abs(hx.Dot(xc)) ? ColumnOrient.TinggiSearahBalok : ColumnOrient.TinggiMelintang };
+                    cp.Recommend();
+                    // titik acuan: as kolom di muka bawah balok miring
+                    double t0 = ((Q - Z * hb) - P).Dot(Z) / Math.Max(up.Dot(Z), 0.2);
+                    return new Joint { Type = ConnType.PelatTutup, Support = beam, Supported = col, SupportedAtStart = colAtStart, Frame = new Frame(P + up * t0, X, Y, Z), Conn = cp };
+                }
                 if (Math.Abs(slope) <= 2)
                 {
                     var X = new Vec3(mbm.Dir.X, mbm.Dir.Y, 0).Unit; var Y = Vec3.UnitZ.Cross(X);
@@ -304,7 +328,11 @@ namespace SteelKit.Core
                 Angkur = BoltSize.M16, Pedestal = false, DudukanSearahX = Math.Abs(mbm.Dir.Dot(xc)) >= Math.Abs(mbm.Dir.Dot(yc)),
             };
             bp.Recommend();
-            return new Joint { Type = ConnType.PelatDasar, Support = col, SupportAtStart = colAtStart, SupportEndUsed = true, Frame = new Frame(Ob, xc, yc, Vec3.UnitZ), Conn = bp };
+            // titik acuan pelat dasar = muka atas pelat (pelat duduk di atas sayap balok, tidak masuk ke dalamnya)
+            Ob += Vec3.UnitZ * bp.TebalPelat;
+            var jb = new Joint { Type = ConnType.PelatDasar, Support = col, SupportAtStart = colAtStart, SupportEndUsed = true, Frame = new Frame(Ob, xc, yc, Vec3.UnitZ), Conn = bp };
+            jb.Drill.Add(beam);                                    // baut pelat dasar melubangi sayap balok dudukan
+            return jb;
         }
 
         // ------------------------------------------------------------------ balok ke kolom hollow / pipa

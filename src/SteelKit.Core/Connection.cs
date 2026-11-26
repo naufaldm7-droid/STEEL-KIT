@@ -175,13 +175,14 @@ namespace SteelKit.Core
 
         // ------------------------------------------------------------------ pembantu bersama
         /// <summary>Baris baut pelat ujung (koordinat tegak): luar atas, dalam atas, tambahan, dalam bawah, luar bawah.</summary>
-        protected static List<double> PlateRows(double zTop, double zBot, double tfTop, double tfBot, double pf, bool extTop, bool extBot, int extra)
+        protected static List<double> PlateRows(double zTop, double zBot, double tfTop, double tfBot, double pf, bool extTop, bool extBot, int extra, double pitch = 0)
         {
             var rows = new List<double>();
             if (extTop) rows.Add(zTop + pf);
             double a = zTop - tfTop - pf, b = zBot + tfBot + pf;
             rows.Add(a);
-            double step = Math.Floor(Math.Abs(a - b) / (extra + 1) / 5) * 5;   // jarak baris dibulatkan ke 5 mm
+            // jarak baris tambahan: tetap (pitch > 0, dihitung dari baris dalam atas) atau dibagi rata, dibulatkan ke 5 mm
+            double step = pitch > 0 ? pitch : Math.Floor(Math.Abs(a - b) / (extra + 1) / 5) * 5;
             for (int i = 1; i <= extra; i++) rows.Add(a - step * i);
             if (b < a - 1e-6) rows.Add(b);
             if (extBot) rows.Add(zBot - pf);
@@ -244,6 +245,9 @@ namespace SteelKit.Core
             double big = 2 * R + ext + 200;
             return Cutter.Box(ConnResult.AxisFrame(axisPoint, -n), -big, big, -big, big, 0, big);
         }
+
+        /// <summary>Rintisan batang (gambar detail) yang mengembalikan Part-nya.</summary>
+        protected static Part Stub2(ConnResult r, Profile p, Frame f, double len) => StubPart(r, p, f, 0, len);
 
         /// <summary>Potongan batang ke bidang + potongan rintisan (stub) gambar yang sama, sepanjang <paramref name="len"/> dari bidang.</summary>
         protected static Cutter FlushStub(ConnResult r, Profile p, Vec3 axisPoint, Vec3 dir, Vec3 n, double roll, double len, out Vec3 trim)

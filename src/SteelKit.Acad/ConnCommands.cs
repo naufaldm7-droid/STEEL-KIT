@@ -60,6 +60,7 @@ namespace SteelKit.Acad
                 j.Supported >= 0 && j.Type != ConnType.CleatGording && j.Type != ConnType.BalokTumpuk && j.Type != ConnType.SilangBracing ? End(j.SupportedAtStart) : "",
             };
             for (int i = 0; i < j.More.Count; i++) { l.Add(ms[j.More[i]].Handle); l.Add(End(j.MoreAtStart[i])); }
+            foreach (var d in j.Drill) { l.Add(ms[d].Handle); l.Add(""); }      // hanya dilubangi: tanpa ujung, tidak ikut kunci duplikat
             return l.ToArray();
         }
 

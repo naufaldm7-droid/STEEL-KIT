@@ -7,6 +7,8 @@ namespace SteelKit.Core
 {
     public enum AnchorPattern { Dalam4, Luar4, Luar6, Luar8 }
     public enum BaseSupport { Beton, Baja }
+    /// <summary>Pola pengaku pelat dasar: segaris badan (2), segaris sayap (4), atau keduanya (6).</summary>
+    public enum StiffenerLayout { Tidak, Badan2, Sayap4, BadanSayap6 }
 
     /// <summary>
     /// Pelat dasar kolom + baut angkur lengkap. Frame lokal: asal = as kolom di muka atas pelat dasar
@@ -67,12 +69,23 @@ namespace SteelKit.Core
         [Category("4. Grout & beton"), DisplayName("Tinggi pedestal digambar (mm)")]
         public double TinggiPedestal { get; set; } = 400;
 
-        [Category("5. Tambahan"), DisplayName("Pengaku di as badan")]
-        public bool Pengaku { get; set; }
+        [Category("5. Tambahan"), DisplayName("Pola pengaku"),
+         Description("Badan2 = 2 pelat segaris badan di luar sayap. Sayap4 = 4 pelat segaris sayap di luar ujung sayap. BadanSayap6 = keduanya. " +
+                     "Dipakai bila pelat dasar lebih lebar dari kolom (angkur di luar sayap).")]
+        public StiffenerLayout PolaPengaku { get; set; } = StiffenerLayout.Tidak;
+        /// <summary>Pengaturan lama (versi awal): true = Badan2. Disimpan supaya sambungan lama tetap terbaca.</summary>
+        [Browsable(false)] public bool Pengaku { get; set; }
         [Category("5. Tambahan"), DisplayName("Tebal pengaku (mm)")]
         public double TebalPengaku { get; set; }
         [Category("5. Tambahan"), DisplayName("Tinggi pengaku (mm)")]
         public double TinggiPengaku { get; set; }
+        [Category("6. Pengaku badan kolom"), DisplayName("Pengaku tiap (mm)"),
+         Description("Pasangan pelat pengaku di kedua sisi badan kolom, setiap jarak ini dari pelat dasar sampai ujung kolom. 0 = tidak ada. Sudut disnipe ke radius profil.")]
+        public double JarakPengakuKolom { get; set; }
+        [Category("6. Pengaku badan kolom"), DisplayName("Tebal pengaku badan (mm)")] public double TebalPengakuKolom { get; set; }
+        [Category("6. Pengaku badan kolom"), DisplayName("Panjang kolom (mm)"), Description("Diisi otomatis dari batang kolom saat sambung otomatis.")]
+        public double PanjangKolom { get; set; } = 6000;
+
         [Category("5. Tambahan"), DisplayName("Shear key")]
         public bool ShearKey { get; set; }
         [Category("5. Tambahan"), DisplayName("Shear key: tinggi x panjang x tebal")]
@@ -124,6 +137,7 @@ namespace SteelKit.Core
             Kait = Grades.DefaultHook(TipeAngkur, b.D);
             TepiPedestal = Fmt.Round10(Math.Max(100, 6 * b.D - e));
             TebalPengaku = Fmt.StdPlate(Math.Max(10, Tw));
+            TebalPengakuKolom = Fmt.StdPlate(Math.Max(8, Tw));
             TinggiPengaku = Fmt.Round10(Math.Max(150, 1.5 * (PanjangPelat - H) / 2));
             ShearKeyUkuran = "100x" + Fmt.N(Fmt.Round10(0.6 * B)) + "x20";
         }
@@ -144,6 +158,7 @@ namespace SteelKit.Core
         ConnResult BuildOnSteel(ConnResult r, Profile c, BoltData b, List<Vec2> pos, string plateLabel)
         {
             double tp = TebalPelat, tf = TebalSayapDudukan, len = 0;
+            r.TrimSupport = Vec3.Zero;          // kaki tiang dipotong rata di muka atas pelat dasar
             foreach (var p in pos) len = r.Bolt(new Vec3(p.X, p.Y, 0), -Vec3.UnitZ, tp + tf, b);
             BoltBoq(r, Angkur, BoltGrade.Kelas8_8, len, pos.Count, "ke sayap balok");
             double far = 2 * Math.Max(LebarPelat, PanjangPelat);
@@ -235,16 +250,61 @@ namespace SteelKit.Core
             r.AddBoq("Ring plat", Pl(wpS, wpS, wpT) + " lubang Ø" + Fmt.N(d + 2), pos.Count, wpS * wpS * wpT * 7.85e-6);
             if (TipeAngkur == AnchorType.UlirPelatBawah) r.AddBoq("Pelat", Pl(Fmt.Round5(2.5 * d), Fmt.Round5(2.5 * d), 10) + " (pelat bawah angkur)", pos.Count, Math.Pow(Fmt.Round5(2.5 * d), 2) * 10 * 7.85e-6);
 
-            // pengaku di as badan (luar sayap)
-            if (Pengaku && !Tube && Lp > H + 1)
+            // pengaku pelat dasar: bentuk trapesium (tinggi penuh di muka kolom, 35% di tepi pelat), sudut bawah dalam disnipe 15 mm untuk las
+            var layout = PolaPengaku == StiffenerLayout.Tidak && Pengaku ? StiffenerLayout.Badan2 : PolaPengaku;
+            if (layout != StiffenerLayout.Tidak && !Tube)
             {
-                double ts = TebalPengaku, hs = TinggiPengaku;
-                var fr = new Frame(Vec3.Zero, Vec3.UnitY, Vec3.UnitZ, Vec3.UnitX);   // loop di bidang (y, z), tebal arah x
-                foreach (int s in new[] { 1, -1 })
+                double ts = TebalPengaku, hs = TinggiPengaku, sn = 15;
+                List<Vec2> Trap(double a, double b2, int s) => new List<Vec2>
+                    { new Vec2(s * a, sn), new Vec2(s * (a + sn), 0), new Vec2(s * b2, 0), new Vec2(s * b2, 0.35 * hs), new Vec2(s * a, hs) };
+                if ((layout == StiffenerLayout.Badan2 || layout == StiffenerLayout.BadanSayap6) && Lp > H + 1)
                 {
-                    var pts = new List<Vec2> { new Vec2(s * H / 2, 0), new Vec2(s * Lp / 2, 0), new Vec2(s * Lp / 2, 0.35 * hs), new Vec2(s * H / 2, hs) };
-                    var part = r.Prism(PartKind.Pengaku, "", fr, Shapes.Filleted(pts, null), -ts / 2, ts / 2);
-                    r.AddBoq("Pelat", Pl((Lp - H) / 2, hs, ts) + " (pengaku)", 1, part.MassKg());
+                    var fr = new Frame(Vec3.Zero, Vec3.UnitY, Vec3.UnitZ, Vec3.UnitX);   // bidang (y, z), tebal arah x, di as badan
+                    foreach (int s in new[] { 1, -1 })
+                    {
+                        var part = r.Prism(PartKind.Pengaku, "", fr, Shapes.Filleted(Trap(H / 2, Lp / 2, s), null), -ts / 2, ts / 2);
+                        r.AddBoq("Pelat", Pl((Lp - H) / 2, hs, ts) + " (pengaku pelat dasar)", 1, part.MassKg());
+                    }
+                }
+                if ((layout == StiffenerLayout.Sayap4 || layout == StiffenerLayout.BadanSayap6) && Bp > B + 1)
+                {
+                    var fr = new Frame(Vec3.Zero, Vec3.UnitX, Vec3.UnitZ, -Vec3.UnitY);  // bidang (x, z), tebal arah y, segaris sayap
+                    foreach (int sy in new[] { 1, -1 })
+                        foreach (int s in new[] { 1, -1 })
+                        {
+                            double yc = sy * (H / 2 - Tf / 2);
+                            var part = r.Prism(PartKind.Pengaku, "", fr, Shapes.Filleted(Trap(B / 2, Bp / 2, s), null), -yc - ts / 2, -yc + ts / 2);
+                            r.AddBoq("Pelat", Pl((Bp - B) / 2, hs, ts) + " (pengaku pelat dasar)", 1, part.MassKg());
+                        }
+                    // ring plat & kunci angkur tidak boleh menabrak pengaku segaris sayap
+                    double clear = pos.Count == 0 ? double.MaxValue : pos.Min(q => Math.Abs(Math.Abs(q.Y) - (H / 2 - Tf / 2))) - ts / 2;
+                    r.Rule(clear >= wpS / 2 + 5 - 1e-6, "Ring plat angkur bebas dari pengaku sayap (" + Fmt.N(clear) + " ≥ " + Fmt.N(wpS / 2 + 5) + " mm)", "ruang kunci, praktik umum");
+                }
+                if (layout == StiffenerLayout.Badan2 || layout == StiffenerLayout.BadanSayap6)
+                {
+                    double clear = pos.Count == 0 ? double.MaxValue : pos.Where(q => Math.Abs(q.Y) > H / 2).Select(q => Math.Abs(q.X) - ts / 2).DefaultIfEmpty(double.MaxValue).Min();
+                    r.Rule(clear >= wpS / 2 + 5 - 1e-6, "Ring plat angkur bebas dari pengaku badan (" + Fmt.N(clear) + " ≥ " + Fmt.N(wpS / 2 + 5) + " mm)", "ruang kunci, praktik umum");
+                }
+                r.Rule(hs >= (layout == StiffenerLayout.Sayap4 ? Bp - B : Lp - H) / 2 * 0.8 - 1e-6 || hs >= 150, "Tinggi pengaku " + Fmt.N(hs) + " mm cukup terhadap tonjolan pelat", "praktik umum");
+            }
+            // pengaku badan kolom berjarak (sepanjang kolom), kedua sisi badan, sudut disnipe ke radius profil
+            if (JarakPengakuKolom > 0 && !Tube && (c.Family == Family.WF || c.Family == Family.H))
+            {
+                double ts = TebalPengakuKolom > 0 ? TebalPengakuKolom : Tw, yi = H / 2 - Tf, xo = B / 2 - 1, sn = Math.Max(c["r"], 0) + 5;
+                int nLev = 0;
+                for (double z = JarakPengakuKolom; z <= PanjangKolom - 0.5 * JarakPengakuKolom + 1e-6 && nLev < 40; z += JarakPengakuKolom, nLev++)
+                    foreach (int sd in new[] { 1, -1 })
+                    {
+                        double xi = Tw / 2;
+                        var pts = new List<Vec2> { new Vec2(xi, -yi + sn), new Vec2(xi + sn, -yi), new Vec2(xo, -yi), new Vec2(xo, yi), new Vec2(xi + sn, yi), new Vec2(xi, yi - sn) };
+                        if (sd < 0) pts = pts.Select(q => new Vec2(-q.X, q.Y)).Reverse().ToList();
+                        var st = r.Prism(PartKind.Pengaku, "", new Frame(), Shapes.Filleted(pts, null), z - ts / 2, z + ts / 2);
+                        r.AddBoq("Pelat", Pl(xo - Tw / 2, 2 * yi, ts) + " (pengaku badan kolom)", 1, st.MassKg());
+                    }
+                if (nLev > 0)
+                {
+                    WeldBoq(r, Math.Max(5, Fmt.MinFillet(ts)), nLev * 2 * 2 * (2 * yi + (xo - Tw / 2)), "pengaku badan kolom, dua sisi");
+                    r.Rule(JarakPengakuKolom >= 300 - 1e-6, "Jarak pengaku badan kolom " + Fmt.N(JarakPengakuKolom) + " ≥ 300 mm (ruang las)", "praktik umum");
                 }
             }
             if (ShearKey)

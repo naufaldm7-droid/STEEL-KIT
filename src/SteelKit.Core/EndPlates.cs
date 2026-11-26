@@ -59,6 +59,7 @@ namespace SteelKit.Core
         [Category("3. Baut"), DisplayName("Gauge (mm)"), Description("Jarak as baut kiri-kanan.")] public double Gauge { get; set; }
         [Category("3. Baut"), DisplayName("Jarak baut ke sayap pf (mm)")] public double Pf { get; set; }
         [Category("3. Baut"), DisplayName("Baris tambahan di badan")] public int BarisTambahan { get; set; }
+        [Category("3. Baut"), DisplayName("Jarak baris tambahan (mm)"), Description("0 = dibagi rata antara baris dalam atas dan bawah. Isi angka untuk jarak tetap (minimum 3d).")] public double JarakBaris { get; set; }
 
         [Category("4. Las & pengaku"), DisplayName("Las sayap a (mm)")] public double LasSayap { get; set; }
         [Category("4. Las & pengaku"), DisplayName("Las badan a (mm)")] public double LasBadan { get; set; }
@@ -93,7 +94,7 @@ namespace SteelKit.Core
             double Hb = Sec.H(bm), Bb = Sec.B(bm), tfb = Sec.Tf(bm), twb = Sec.Tw(bm), tp = TebalPelat, bp = LebarPelat;
             bool extT = Jenis != EndPlateKind.Rata, extB = Jenis == EndPlateKind.DiperpanjangKeduanya;
             double zt = Hb / 2 + (extT ? Perpanjangan : 15), zbot = -Hb / 2 - (extB ? Perpanjangan : 15);
-            var rows = PlateRows(Hb / 2, -Hb / 2, tfb, tfb, Pf, extT, extB, BarisTambahan);
+            var rows = PlateRows(Hb / 2, -Hb / 2, tfb, tfb, Pf, extT, extB, BarisTambahan, JarakBaris);
             var ys = BautPerBaris == 4 ? new[] { -Gauge / 2 - b.MinSpacing, -Gauge / 2, Gauge / 2, Gauge / 2 + b.MinSpacing } : new[] { -Gauge / 2, Gauge / 2 };
 
             string plateLabel = Pl(bp, zt - zbot, tp);
@@ -177,6 +178,13 @@ namespace SteelKit.Core
         [Category("3. Baut"), DisplayName("Gauge (mm)")] public double Gauge { get; set; }
         [Category("3. Baut"), DisplayName("Jarak baut ke sayap pf (mm)")] public double Pf { get; set; }
         [Category("3. Baut"), DisplayName("Baris tambahan di badan")] public int BarisTambahan { get; set; }
+        [Category("3. Baut"), DisplayName("Jarak baris tambahan (mm)"), Description("0 = dibagi rata antara baris dalam atas dan bawah. Isi angka untuk jarak tetap (minimum 3d).")] public double JarakBaris { get; set; }
+
+        [Category("5. Haunch puncak"), DisplayName("Haunch puncak (apex haunch)"), Description("Badan segitiga + sayap miring di bawah kedua rafter; pelat ujung diperpanjang ke bawah. Hanya untuk sambungan puncak (sudut > 0).")]
+        public bool HaunchPuncak { get; set; }
+        [Category("5. Haunch puncak"), DisplayName("Panjang haunch per sisi (mm)")] public double PanjangHaunch { get; set; }
+        [Category("5. Haunch puncak"), DisplayName("Tinggi tambahan di pelat (mm)")] public double TinggiHaunch { get; set; }
+        [Category("5. Haunch puncak"), DisplayName("Tebal badan haunch (mm)")] public double TebalBadanHaunch { get; set; }
 
         [Category("4. Las"), DisplayName("Las sayap a (mm)")] public double LasSayap { get; set; }
         [Category("4. Las"), DisplayName("Las badan a (mm)")] public double LasBadan { get; set; }
@@ -197,7 +205,10 @@ namespace SteelKit.Core
             LebarPelat = Fmt.Round10(Math.Max(Sec.B(m) + 20, Gauge + 2 * e));
             PerpanjanganAtas = Sudut > 0.5 ? Fmt.Round5(Pf + e) : 15;
             PerpanjanganBawah = 15;
-            double inner = Sec.H(m) / Cos - 2 * Sec.Tf(m) / Cos - 2 * Pf;
+            PanjangHaunch = Fmt.Round10(Math.Max(1.5 * Sec.H(m), 600));
+            TinggiHaunch = Fmt.Round10(0.5 * Sec.H(m));
+            TebalBadanHaunch = Fmt.StdPlate(Math.Max(8, Sec.Tw(m)));
+            double inner = Sec.H(m) / Cos - 2 * Sec.Tf(m) / Cos - 2 * Pf + (HaunchPuncak ? TinggiHaunch : 0);
             BarisTambahan = Math.Min(3, Math.Max(0, (int)Math.Floor(inner / Math.Max(3 * b.D, 90)) - 1));
         }
 
@@ -208,8 +219,11 @@ namespace SteelKit.Core
             double H = Sec.H(m), tf = Sec.Tf(m), tp = TebalPelat, bp = LebarPelat, cs = Cos;
             double hc = H / cs, tfc = tf / cs;
             bool extT = PerpanjanganAtas > Pf + b.MinEdge - 1e-6, extB = PerpanjanganBawah > Pf + b.MinEdge - 1e-6;
-            double zt = hc / 2 + PerpanjanganAtas, zb = -hc / 2 - PerpanjanganBawah;
-            var rows = PlateRows(hc / 2, -hc / 2, tfc, tfc, Pf, extT, extB, BarisTambahan);
+            bool hx = HaunchPuncak && Sudut > 0.5;
+            double Dh = hx ? TinggiHaunch : 0;
+            double zt = hc / 2 + PerpanjanganAtas, zb = -hc / 2 - Dh - PerpanjanganBawah;
+            // dengan haunch, pelat & baris baut mencakup tinggi rafter + haunch (sayap haunch sebagai sayap bawah)
+            var rows = PlateRows(hc / 2, -hc / 2 - Dh, tfc, tfc, Pf, extT, extB, BarisTambahan, JarakBaris);
             var ys = new[] { -Gauge / 2, Gauge / 2 };
             string lab = Pl(bp, zt - zb, tp);
             foreach (int s in new[] { -1, 1 })
@@ -223,6 +237,32 @@ namespace SteelKit.Core
             r.AddBoq("Baut", "Baut " + Baut + "x" + Fmt.N(len) + " " + Grades.Label(Mutu) + " + mur + 2 ring", nb, BoltKg(b, len));
 
             double a = Sudut * Math.PI / 180;
+            if (hx)
+            {
+                // haunch puncak di bawah tiap rafter: badan segitiga + sayap miring, rapat ke muka pelat masing-masing
+                double Lh = PanjangHaunch, tw = TebalBadanHaunch, ta = Math.Tan(a), bf = Sec.B(m);
+                foreach (int sd in new[] { -1, 1 })
+                {
+                    double x0 = sd * tp, x1 = sd * (tp + Lh);
+                    double zTop0 = -ta * tp - hc / 2, zTop1 = -ta * (tp + Lh) - hc / 2, zBot0 = zTop0 - Dh;
+                    var web = new List<Vec2> { new Vec2(x0, zTop0), new Vec2(x1, zTop1), new Vec2(x0, zBot0 + tf) };
+                    var fw = new Frame(Vec3.Zero, Vec3.UnitX, Vec3.UnitZ, -Vec3.UnitY);        // bidang (x, z), tebal arah y
+                    var pw = r.Prism(PartKind.Pelat, "badan haunch puncak", fw, Shapes.Filleted(sd > 0 ? web.AsEnumerable().Reverse().ToList() : web, null), -tw / 2, tw / 2);
+                    r.AddBoq("Pelat", "PL t=" + Fmt.N(tw) + " (badan haunch puncak)", 1, pw.MassKg());
+                    // sayap haunch: muka atasnya = sisi bawah badan haunch, dari muka pelat ujung ke sayap bawah rafter
+                    var A = new Vec3(x0, 0, zBot0 + tf); var Bq = new Vec3(x1, 0, zTop1);
+                    var u = (Bq - A).Unit; double lenF = (Bq - A).Length;
+                    var w = u.Cross(Vec3.UnitY).Unit;                                            // tegak lurus sayap, di bidang (x, z)
+                    double w0 = w.Z > 0 ? -tf : 0, w1 = w.Z > 0 ? 0 : tf;                        // tebal ke arah bawah
+                    var ff = new Frame(A, u, Vec3.UnitY, w);
+                    var pf = r.Prism(PartKind.Pelat, "sayap haunch puncak", ff, Shapes.Rect(-2 * tf, -bf / 2, lenF, bf / 2), w0, w1);
+                    pf.Clip(new Vec3(x0, 0, 0), new Vec3(sd, 0, 0));                            // rapat di muka pelat
+                    r.AddBoq("Pelat", Pl(bf, Fmt.Round5(lenF), tf) + " (sayap haunch puncak)", 1, pf.MassKg());
+                }
+                WeldBoq(r, Math.Max(5, LasBadan), 2 * 2 * (Lh + Dh), "badan & sayap haunch puncak, dua sisi");
+                r.Rule(Dh <= 1.5 * H + 1e-6, "Tinggi haunch puncak " + Fmt.N(Dh) + " ≤ 1,5 x tinggi rafter", "praktik umum PEB");
+                r.Rule(Lh >= Dh - 1e-6, "Panjang haunch puncak ≥ tingginya", "praktik umum");
+            }
             var dA = new Vec3(-Math.Cos(a), 0, -Math.Sin(a)); var dB = new Vec3(Math.Cos(a), 0, -Math.Sin(a));
             // kedua batang dipotong tegak rapat ke pelat masing-masing (puncak: potongan sejajar pelat, bukan tegak lurus batang)
             double stubLen = Math.Max(1.5 * H, 500);
@@ -283,6 +323,7 @@ namespace SteelKit.Core
         [Category("4. Baut"), DisplayName("Gauge (mm)")] public double Gauge { get; set; }
         [Category("4. Baut"), DisplayName("Jarak baut ke sayap pf (mm)")] public double Pf { get; set; }
         [Category("4. Baut"), DisplayName("Baris tambahan")] public int BarisTambahan { get; set; }
+        [Category("4. Baut"), DisplayName("Jarak baris tambahan (mm)"), Description("0 = dibagi rata antara baris dalam atas dan bawah. Isi angka untuk jarak tetap (minimum 3d).")] public double JarakBaris { get; set; }
 
         [Category("5. Las & pengaku"), DisplayName("Las sayap a (mm)")] public double LasSayap { get; set; }
         [Category("5. Las & pengaku"), DisplayName("Las badan a (mm)")] public double LasBadan { get; set; }
@@ -332,7 +373,7 @@ namespace SteelKit.Core
             var p1 = new Vec3(x1, 0, zHaunchFace); var p2 = new Vec3(x1 + Lh, 0, zBot(x1 + Lh));
             var u = (p2 - p1).Unit; double fl = (p2 - p1).Length;
             double plateTop = zTop(x1) + PerpanjanganAtas, plateBot = zHaunchFace - tfr / Math.Max(u.X, 0.2) - 15;
-            var rows = PlateRows(zTop(x1), zHaunchFace - tfr, tfr / cs, tfr, Pf, true, false, BarisTambahan);
+            var rows = PlateRows(zTop(x1), zHaunchFace - tfr, tfr / cs, tfr, Pf, true, false, BarisTambahan, JarakBaris);
             var ys = new[] { -Gauge / 2, Gauge / 2 };
 
             string lab = Pl(LebarPelat, plateTop - plateBot, tp);

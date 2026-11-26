@@ -126,6 +126,7 @@ namespace SteelKit.Acad
                         info.Sub = "MARKING " + part.Mark + " - " + part.Tag.Name + " (" + part.Count + " BATANG)"; info.No = i + 1;
                         Border(tr, ps, A3, info);
                         FabSheet(tr, db, ps, part, k);
+                        Std.ApplyAll(tr, db, ps);
                         tr.Commit();
                     }
                 }
@@ -150,19 +151,23 @@ namespace SteelKit.Acad
         {
             var e = part.Ext;
             double L = (e.MaxPoint.X - e.MinPoint.X) / k, H = (e.MaxPoint.Z - e.MinPoint.Z) / k, B = (e.MaxPoint.Y - e.MinPoint.Y) / k;
-            // tampak samping: lihat dari -Y (kanan = panjang, atas = tinggi profil)
-            // kiri: dua tampak (lebar 250 mm); kanan: tabel data + catatan
-            var vE = FabViewport(tr, db, ps, new Point3d(140, 240, 0), 240, 50, e, -Vector3d.YAxis, k, null, out double sc, out double[] rE);
-            // tampak atas: lihat dari +Z (kanan = panjang, atas = lebar profil), skala sama bila muat
-            var vP = FabViewport(tr, db, ps, new Point3d(140, 148, 0), 240, 40, e, Vector3d.ZAxis, k, sc, out double scP, out double[] rP);
+            // kolom kiri (x 15..265): tampak samping lalu tampak atas, disusun dari atas dengan jarak tetap.
+            // kolom kanan (x 275..405): tabel data, catatan, daftar lubang, rata kiri dan sejajar atas.
+            const double cx = 140, colW = 240, xR = 275;
             var web = part.Holes.Where(h => h.Kind != "sayap").ToList();
             var fl = part.Holes.Where(h => h.Kind == "sayap").ToList();
+            // tampak samping: lihat dari -Y (kanan = panjang, atas = tinggi profil); tepi atas batang di y 262
+            var vE = FabViewport(tr, db, ps, new Point3d(cx, 230, 0), colW, 50, e, -Vector3d.YAxis, k, null, out double sc, out double[] rE);
+            MoveVp(vE, rE, 262 - rE[3]);
             double fE = FabDims(tr, db, ps, vE, rE, sc, web.Select(h => h.C).ToList(), e, k, true, out string gE);
-            double fP = FabDims(tr, db, ps, vP, rP, scP, fl.Select(h => h.C).ToList(), e, k, false, out string gP);
             HoleCallouts(tr, ps, vE, rE, web, gE);
+            Label(tr, ps, new Point3d(cx, fE - 3, 0), "TAMPAK SAMPING " + part.Mark, sc, Std.H2, 262);
+            // tampak atas: lihat dari +Z (kanan = panjang, atas = lebar profil), skala sama; 26 mm di bawah label di atasnya
+            var vP = FabViewport(tr, db, ps, new Point3d(cx, 140, 0), colW, 40, e, Vector3d.ZAxis, k, sc, out double scP, out double[] rP);
+            MoveVp(vP, rP, (fE - 3 - 11 - 15) - rP[3]);
+            double fP = FabDims(tr, db, ps, vP, rP, scP, fl.Select(h => h.C).ToList(), e, k, false, out string gP);
             HoleCallouts(tr, ps, vP, rP, fl, gP);
-            Label(tr, ps, new Point3d(140, fE - 2, 0), "TAMPAK SAMPING " + part.Mark, sc, 3.5, 262);
-            Label(tr, ps, new Point3d(140, fP - 2, 0), "TAMPAK ATAS " + part.Mark, scP, 3.5, 262);
+            Label(tr, ps, new Point3d(cx, fP - 3, 0), "TAMPAK ATAS " + part.Mark, scP, Std.H2, 262);
 
             // tabel data marking (kiri bawah, di atas catatan umum)
             double kgm = part.Tag.KgPerM, each = kgm * L / 1000;
@@ -181,23 +186,38 @@ namespace SteelKit.Acad
                 new[] { "MUTU & PERMUKAAN", "sesuai spesifikasi proyek" },
             };
             if (L > 12000) rows.Add(new[] { "PERHATIAN", "panjang > 12 m: tentukan sambungan (splice) sesuai panjang material tersedia" });
-            Commands.MakeTable(db, Matrix3d.Identity, new Point3d(280, 280, 0), "DATA MARKING " + part.Mark, rows, 2.0 / k, ps.ObjectId);
-            HoleTable(db, ps, part, k);
+            double yR = 272;
+            var tid = Commands.MakeTable(db, Matrix3d.Identity, new Point3d(xR, yR, 0), "DATA MARKING " + part.Mark, rows, Std.H4 / k, ps.ObjectId);
+            yR -= TableHeight(tr, tid) + 5;
             var note = Masked(new MText
             {
                 Contents = "Gambar bagian tunggal (single part). Pelat, siku, dan baut yang terpasang pada batang ini lihat lembar detail sambungan." +
                     "\\PUkuran lubang = diameter lubang baut standar; posisi lubang diukur dari ujung kiri batang." +
                     (part.Tag.Family == Family.RD ? "\\PRod: panjang ulir di kedua ujung sesuai detail ujung rod dan turnbuckle." : ""),
-                Location = new Point3d(280, 202, 0), TextHeight = 1.8, Width = 122, Attachment = AttachmentPoint.TopLeft, Layer = Draw.LayText,
+                Location = new Point3d(xR, yR, 0), TextHeight = Std.H4, Width = 128, Attachment = AttachmentPoint.TopLeft, Layer = Draw.LayText,
             });
             ps.AppendEntity(note); tr.AddNewlyCreatedDBObject(note, true);
+            yR -= (note.ActualHeight > 0 ? note.ActualHeight : 12) + 5;
+            HoleTable(db, ps, part, k, new Point3d(xR, yR, 0));
+        }
+
+        static double TableHeight(Transaction tr, ObjectId id)
+        {
+            try { return ((Table)tr.GetObject(id, OpenMode.ForRead)).Height; } catch { return 60; }
+        }
+
+        /// <summary>Geser viewport vertikal (isi ikut bergeser) dan perbarui batas batangnya di kertas.</summary>
+        static void MoveVp(Viewport vp, double[] r, double dy)
+        {
+            vp.CenterPoint = new Point3d(vp.CenterPoint.X, vp.CenterPoint.Y + dy, 0);
+            r[1] += dy; r[3] += dy;
         }
 
         /// <summary>
         /// Daftar lubang per posisi memanjang: jarak dari ujung kiri, jarak dari tepi bawah (badan) / tepi samping (sayap),
         /// diameter, jenis. Untuk batang panjang yang dimensinya terlalu rapat di skala gambar.
         /// </summary>
-        static void HoleTable(Database db, BlockTableRecord ps, FabPart part, double k)
+        static void HoleTable(Database db, BlockTableRecord ps, FabPart part, double k, Point3d at)
         {
             if (part.Holes.Count == 0) return;
             var e = part.Ext;
@@ -214,7 +234,7 @@ namespace SteelKit.Acad
                 rows.Add(new[] { n.ToString(CultureInfo.InvariantCulture), Fmt.N(g.Key.x), string.Join(" / ", across.Select(v => Fmt.N(v))),
                     g.Count() + " x " + (g.Key.Kind == "lonjong" ? "lonjong " : "Ø") + Fmt.N(g.Key.d), g.Key.Kind });
             }
-            Commands.MakeTable(db, Matrix3d.Identity, new Point3d(280, 188, 0), "DAFTAR LUBANG " + part.Mark + " (mm)", rows, 1.8 / k, ps.ObjectId);
+            Commands.MakeTable(db, Matrix3d.Identity, at, "DAFTAR LUBANG " + part.Mark + " (mm)", rows, Std.H4 / k, ps.ObjectId);
         }
 
         /// <summary>Viewport garis tersembunyi pas ke batang; mengembalikan batas batang di kertas (x0, y0, x1, y1).</summary>
@@ -300,7 +320,8 @@ namespace SteelKit.Acad
             {
                 var p = ToPaper(vp, g.OrderBy(h => h.C.X).First().C);
                 string txt = g.Count() + " x " + (g.Key.Kind == "lonjong" ? "lonjong lebar " : "Ø") + Fmt.N(g.Key.Item2) + (string.IsNullOrEmpty(gauge) ? "" : ", " + gauge);
-                PaperLeader(tr, ps, p, new Point3d(p.X + 8 + 30 * i, r[3] + 7, 0), 1, txt, 2.2);
+                double d = r[3] + 7 + 6 * i - p.Y;                       // kaki 45° sampai di atas tampak
+                PaperLeader(tr, ps, p, new Point3d(p.X + d, p.Y + d, 0), 1, txt, Std.H3);
                 i++;
             }
         }

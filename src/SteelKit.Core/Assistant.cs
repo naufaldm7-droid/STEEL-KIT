@@ -39,13 +39,52 @@ namespace SteelKit.Core
         };
 
         static readonly string[] Subjects = { "kolom", "rafter", "balok", "gording", "girt", "bracing", "ikatan", "rod", "anak" };
-        static readonly string[] StructWords = { "portal", "gudang", "peb", "pelana", "mono", "sepihak", "lantai", "mezanin", "mezzanine", "grid", "hanggar", "workshop", "bengkel" };
+        static readonly string[] StructWords = { "portal", "gudang", "peb", "pelana", "mono", "sepihak", "lantai", "mezanin", "mezzanine", "grid", "hanggar", "workshop", "bengkel",
+            "kanopi", "kantilever", "menara", "jembatan", "truss", "duasisi" };
 
         class Tok { public string Kind, Text; public double Num; public double Num2 = double.NaN; }
+
+        /// <summary>
+        /// Istilah teknik yang umum dipakai engineer & drafter (Indonesia/Inggris) dan ejaan yang sering keluar dari pengenal suara,
+        /// diseragamkan ke kata kunci asisten. Urutan penting: frasa panjang dulu.
+        /// </summary>
+        static readonly (string pattern, string to)[] Synonyms =
+        {
+            (@"\blabar\b|\blebarnya\b", "lebar"),
+            (@"(be(l|ll)(a|e|i)s)\b", "belas"),
+            (@"\b(pulu|pula|polo|puloh)\b", "puluh"),
+            (@"\b(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|lema)(belas|puluh|ratus)\b", "$1 $2"),
+            (@"\b(lebar|tinggi|bentang|jarak|panjang)(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|sebelas|seratus)", "$1 $2"),
+            (@"\b(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|belas|puluh|ratus)(meter|m)\b", "$1 $2"),
+            (@"\b(lema|lemah|limah)\b(?=\s*(belas|puluh|ratus|meter|m\b|bay|portal|segmen|panel))", "lima"),
+            (@"\bsegment\b", "segmen"),
+            (@"\bgirter\b", "gelagar"),
+            (@"\bjembatan\s+rangka\b", "jembatan truss"),
+            (@"\brangka\s+batang\b|\bkuda[\s-]*kuda\b|\btrus+\b", "truss"),
+            (@"\brigid\s+frame\b|\bframes?\b|\brangka(\s+baja)?\b", "portal"),
+            (@"\bcanop(y|i)\b|\bkanop(y|i)\b|\bcar\s?port\b|\bshelter\b|\bselasar\b|\bteras\b", "kanopi"),
+            (@"\bcantil(e|i)ver\b|\bkantil(e|i)(v|f)er\b|\boverhang\b", "kantilever"),
+            (@"\bwater\s+tower\b|\btower\s+air\b|\btowers?\b|\bmenara(\s+air)?\b|\btandon\b|\btangki\s+air\b", "menara"),
+            (@"\bfoot\s?bridge\b|\bbridges?\b|\bjpo\b|\bjembatan\s+penyeberangan(\s+orang)?\b", "jembatan"),
+            (@"\bgirders?\b|\bgelagar\b", "gelagar"),
+            (@"\bcolumns?\b|\btiang\b|\bkaki\b", "kolom"),
+            (@"\bbeams?\b", "balok"),
+            (@"\bpurlins?\b", "gording"),
+            (@"\bbraces?\b|\bbracing\b|\bikat(an)?\s+angin\b|\bdiagonal\b", "bracing"),
+            (@"\bspan\b", "bentang"),
+            (@"\bheight\b", "tinggi"),
+            (@"\bwidth\b", "lebar"),
+            (@"\blength\b", "panjang"),
+            (@"\bspacing\b", "jarak"),
+            (@"\bmono\s?slope\b|\bsingle\s+slope\b|\bsatu\s+arah\b", "mono"),
+            (@"\bdua\s+sisi\b|\bkiri\s+kanan\b|\b(bentuk|tipe)\s+t\b", "duasisi"),
+            (@"\bsegmen\b|\bpanel\b", "panel")
+        };
 
         static string Normalize(string s)
         {
             s = (s ?? "").ToLowerInvariant();
+            foreach (var (pat, to) in Synonyms) s = Regex.Replace(s, pat, to);
             s = Regex.Replace(s, @"(\d),(\d)", "$1.$2");                       // 1,2 -> 1.2
             s = Regex.Replace(s, @"(\d)\s*koma\s*(\d)", "$1.$2");
             s = s.Replace("°", " derajat ").Replace("×", "x").Replace("meter", " m ").Replace("mtr", " m ");
@@ -150,7 +189,7 @@ namespace SteelKit.Core
             var plan = new AssistantPlan();
             var toks = Tokenize(Normalize(sentence));
             string subject = "struktur", pendingKey = null, structure = null;
-            bool mono = false;
+            bool mono = false, cant = false, twoSided = false, truss = false;
             var prm = new Dictionary<string, Dictionary<string, double>>();
             var prof = new Dictionary<string, Profile>();
             Func<string, Dictionary<string, double>> P = k => prm.TryGetValue(k, out var d) ? d : (prm[k] = new Dictionary<string, double>());
@@ -166,12 +205,20 @@ namespace SteelKit.Core
                     if (StructWords.Contains(w))
                     {
                         if (w == "mono" || w == "sepihak") mono = true;
+                        else if (w == "kanopi") structure = "kanopi";
+                        else if (w == "kantilever") { cant = true; structure = structure ?? "kanopi"; }
+                        else if (w == "menara") structure = "menara";
+                        else if (w == "jembatan") structure = "jembatan";
+                        else if (w == "truss") { truss = true; }
+                        else if (w == "duasisi") { twoSided = true; cant = true; }
                         else if (w == "lantai" || w == "mezanin" || w == "mezzanine") structure = "lantai";
                         else if (w == "grid") structure = structure ?? "grid";
-                        else structure = "portal";
+                        else if (structure != "kanopi" && structure != "menara" && structure != "jembatan") structure = "portal";
                         subject = "struktur"; continue;
                     }
-                    if (w == "bentang" || w == "lebar") { pendingKey = "bentang"; continue; }
+                    if (w == "gelagar") { subject = "balok"; P("struktur")["gelagar"] = 1; pendingKey = null; continue; }
+                    if (w == "bentang") { pendingKey = "bentang"; continue; }
+                    if (w == "lebar") { pendingKey = "lebar"; continue; }
                     if (w == "panjang") { pendingKey = subject == "struktur" ? "panjang" : "panjang"; continue; }
                     if (w == "tinggi" || w == "elevasi") { pendingKey = "tinggi"; continue; }
                     if (w == "kemiringan" || w == "miring" || w == "sudut" || w == "slope") { pendingKey = "miring"; continue; }
@@ -196,7 +243,7 @@ namespace SteelKit.Core
                 double f = unit == "mm" ? 1 : unit == "cm" ? 10 : unit == "m" ? 1000 : double.NaN;
                 bool deg = unit == "derajat" || unit == "deg";
                 bool pct = unit == "%" || unit == "persen";
-                bool count = unit == "bay" || unit == "portal" || unit == "frame" || unit == "rangka" || unit == "buah" || unit == "batang" || unit == "bentang" || unit == "lantai" || unit == "tingkat" || unit == "kolom" || unit == "baris";
+                bool count = unit == "bay" || unit == "portal" || unit == "frame" || unit == "rangka" || unit == "buah" || unit == "batang" || unit == "bentang" || unit == "lantai" || unit == "tingkat" || unit == "kolom" || unit == "baris" || unit == "panel";
                 if (t.Kind == "D")
                 {
                     double ff = double.IsNaN(f) ? (t.Num < 200 ? 1000 : 1) : f;
@@ -208,7 +255,7 @@ namespace SteelKit.Core
                 double v = t.Num;
                 if (count)
                 {
-                    string key = unit == "bay" || unit == "bentang" ? "bay" : unit == "portal" || unit == "frame" || unit == "rangka" ? "portal" : unit == "lantai" || unit == "tingkat" ? "lantai" : "jumlah";
+                    string key = unit == "bay" || unit == "bentang" ? "bay" : unit == "portal" || unit == "frame" || unit == "rangka" ? "portal" : unit == "lantai" || unit == "tingkat" ? "lantai" : unit == "panel" ? "panel" : "jumlah";
                     P(key == "jumlah" ? subject : "struktur")[key] = v;
                     i++; pendingKey = null; continue;
                 }
@@ -222,19 +269,183 @@ namespace SteelKit.Core
                 if (!double.IsNaN(f)) i++;
                 string k2 = pendingKey ?? (subject == "struktur" ? "bentang" : "panjang");
                 if (pendingKey == "jumlah") { P(subject)["jumlah"] = v; pendingKey = null; continue; }
-                string owner = k2 == "jarak" ? subject : (k2 == "tinggi" && subject == "kolom" ? "struktur" : (subject == "struktur" || k2 == "bentang" || k2 == "tinggi" ? "struktur" : subject));
+                string owner = k2 == "jarak" ? subject : (k2 == "tinggi" && subject == "kolom" ? "struktur" : (subject == "struktur" || k2 == "bentang" || k2 == "tinggi" || k2 == "lebar" ? "struktur" : subject));
                 P(owner)[k2] = mm;
                 pendingKey = null;
             }
 
             var st = P("struktur");
+            // "lebar" = lebar jembatan; untuk bentuk lain berarti bentang bila bentang tidak disebut
+            if (structure != "jembatan" && !st.ContainsKey("bentang") && st.TryGetValue("lebar", out double lb)) st["bentang"] = lb;
+            if (structure == null && truss && (st.ContainsKey("bentang") || st.ContainsKey("lebar"))) structure = "jembatan";
             if (structure == null && st.ContainsKey("bentang") && (prof.ContainsKey("rafter") || prof.ContainsKey("gording") || st.ContainsKey("miring"))) structure = "portal";
             if (structure == null && st.ContainsKey("bentang") && st.ContainsKey("panjang") && prof.ContainsKey("balok")) structure = "lantai";
-            if (structure == "portal") Portal(plan, st, P, prof, mono);
+            if (structure == "kanopi") Canopy(plan, st, P, prof, cant, twoSided);
+            else if (structure == "menara") Tower(plan, st, P, prof);
+            else if (structure == "jembatan") Bridge(plan, st, P, prof, truss);
+            else if (structure == "portal") Portal(plan, st, P, prof, mono);
             else if (structure == "lantai") Floor(plan, st, P, prof);
             else Singles(plan, st, P, prof);
             if (plan.Members.Count == 0) plan.Unknown.Add("belum bisa menangkap maksud kalimat. Contoh: \"portal bentang 20 m tinggi 6 m miring 10 derajat 5 bay jarak 6 m kolom WF400 rafter WF350 gording C150 jarak 1,2 m\"");
             return plan;
+        }
+
+        // ------------------------------------------------------------------ kanopi / kantilever
+        /// <summary>
+        /// Kanopi. Kantilever: satu baris kolom, balok menjorok (satu sisi atau dua sisi/T) dari puncak kolom, gording di atasnya.
+        /// Tanpa kantilever: kolom di depan & belakang, rafter miring satu arah (portal mono kecil), gording.
+        /// </summary>
+        static void Canopy(AssistantPlan plan, Dictionary<string, double> st, Func<string, Dictionary<string, double>> P, Dictionary<string, Profile> prof, bool cant, bool twoSided)
+        {
+            double depth = Get(st, "bentang", cant ? 3000 : 5000, plan, cant ? "Panjang kantilever" : "Lebar kanopi");
+            double h = Get(st, "tinggi", 3000, plan, "Tinggi kolom");
+            double slope = Get(st, "miring", 5, plan, "Kemiringan atap", "derajat");
+            if (!st.ContainsKey("jarak") && P("kolom").TryGetValue("jarak", out double cj)) st["jarak"] = cj;
+            double bay = Get(st, "jarak", 5000, plan, "Jarak kolom");
+            double L = st.TryGetValue("panjang", out double lg) ? lg : (st.TryGetValue("bay", out double nb) ? nb * bay : 3 * bay);
+            if (!st.ContainsKey("panjang") && !st.ContainsKey("bay")) plan.Assumptions.Add("Panjang kanopi tidak disebut: dipakai " + Fmt.N(L) + " mm (3 bay)");
+            int nCol = Math.Max(2, (int)Math.Round(L / bay) + 1);
+            double sp = L / (nCol - 1);
+            var col = Pick(prof, "kolom", "H200x200x8x12", plan, "Profil kolom");
+            var beam = Pick(prof, cant ? "balok" : "rafter", "WF250x125x6x9", plan, cant ? "Profil balok kantilever" : "Profil rafter");
+            if (!cant && prof.ContainsKey("balok") && !prof.ContainsKey("rafter")) beam = prof["balok"];
+            double t = Math.Tan(slope * Math.PI / 180);
+            var sides = cant && twoSided ? new[] { 1, -1 } : new[] { 1 };
+            for (int j = 0; j < nCol; j++)
+            {
+                double y = j * sp;
+                plan.Members.Add(new MemberProposal { Role = "Kolom", Profile = col.Name, S = new Vec3(0, y, 0), E = new Vec3(0, y, h), Roll = 90 });
+                if (cant && twoSided)
+                    // T: satu balok menerus miring satu arah, duduk di atas kolom (pelat tutup), menjorok ke kedua sisi
+                    plan.Members.Add(new MemberProposal { Role = "Rafter", Profile = beam.Name, S = new Vec3(-depth, y, h + depth * t), E = new Vec3(depth, y, h - depth * t), Anchor = Anchor.Bawah });
+                else if (cant)
+                    // balok menjorok turun ke luar (air mengalir ke ujung kantilever)
+                    plan.Members.Add(new MemberProposal { Role = "Rafter", Profile = beam.Name, S = new Vec3(0, y, h), E = new Vec3(depth, y, h - depth * t) });
+                else
+                {
+                    plan.Members.Add(new MemberProposal { Role = "Kolom", Profile = col.Name, S = new Vec3(depth, y, 0), E = new Vec3(depth, y, h - depth * t), Roll = 90 });
+                    plan.Members.Add(new MemberProposal { Role = "Rafter", Profile = beam.Name, S = new Vec3(0, y, h), E = new Vec3(depth, y, h - depth * t) });
+                }
+            }
+            if (prof.ContainsKey("gording") || P("gording").Count > 0 || true)
+            {
+                var g = Pick(prof, "gording", "C150x65x20x3.2", plan, "Profil gording");
+                double gs = Get(P("gording"), "jarak", 1200, plan, "Jarak gording");
+                double Hr = beam.Extent(false), Hp = g.Extent(false), c = Math.Cos(slope * Math.PI / 180), sn = Math.Sin(slope * Math.PI / 180);
+                double s0 = Math.Max(150, col.Extent(false) / 2 + 250), run = depth / c - s0 - 100;
+                int n = Math.Max(1, (int)Math.Ceiling(run / gs - 1e-9) + 1);
+                double step = n > 1 ? run / (n - 1) : 0;
+                foreach (int sd in sides)
+                    for (int k = 0; k < n; k++)
+                    {
+                        // T: balok miring satu arah, jadi sisi kiri lebih tinggi (z naik ke kiri) dan gording mengikuti satu kemiringan
+                        double s = s0 + k * step, x = sd * s * c, z = h - sd * s * sn, off = (Hr + Hp) / 2 + (cant && twoSided ? Hr / 2 : 0);
+                        x += off * sn; z += off * c;
+                        plan.Members.Add(new MemberProposal { Role = "Gording", Profile = g.Name, S = new Vec3(x, -Overhang, z), E = new Vec3(x, L + Overhang, z), Roll = slope });
+                    }
+            }
+            if (cant && twoSided) plan.Assumptions.Add("Kanopi T: balok menerus miring satu arah di atas kolom (pelat tutup); kekakuan sambungan dicek engineer");
+            plan.Summary = (cant ? "Kanopi kantilever" + (twoSided ? " dua sisi (T)" : "") : "Kanopi dua kolom") + " " + Fmt.N(depth / 1000) + " m x " + Fmt.N(L / 1000) + " m, tinggi " + Fmt.N(h / 1000) +
+                " m, miring " + Fmt.N(slope) + "°: kolom " + col.Name + " ×" + plan.Members.Count(m => m.Role == "Kolom") + ", " + (cant ? "balok kantilever " : "rafter ") + beam.Name +
+                " ×" + plan.Members.Count(m => m.Role == "Rafter") + ", gording ×" + plan.Members.Count(m => m.Role == "Gording") + ".";
+            if (cant) plan.Assumptions.Add("Sambungan kantilever ke kolom harus kaku (momen): periksa jenis sambungan & kapasitasnya dengan engineer");
+        }
+
+        // ------------------------------------------------------------------ menara rangka
+        /// <summary>Menara 4 kaki (mis. tower air / tandon): kaki tegak di sudut, pengaku datar tiap segmen, diagonal zig-zag tiap muka, balok platform di puncak.</summary>
+        static void Tower(AssistantPlan plan, Dictionary<string, double> st, Func<string, Dictionary<string, double>> P, Dictionary<string, Profile> prof)
+        {
+            double w = Get(st, "bentang", 3000, plan, "Lebar menara (as kaki)");
+            double h = Get(st, "tinggi", 9000, plan, "Tinggi menara");
+            int seg = st.TryGetValue("panel", out double ns) ? Math.Max(1, (int)ns) : st.TryGetValue("lantai", out double nl) ? Math.Max(1, (int)nl) : Math.Max(1, (int)Math.Round(h / 3000));
+            if (!st.ContainsKey("panel") && !st.ContainsKey("lantai")) plan.Assumptions.Add("Jumlah segmen tidak disebut: dipakai " + seg + " segmen (±3 m)");
+            var leg = Pick(prof, "kolom", "H200x200x8x12", plan, "Profil kaki menara");
+            var strut = Pick(prof, "balok", "WF200x100x5.5x8", plan, "Profil pengaku datar / balok platform");
+            var diag = Pick(prof, "bracing", "L75x75x8", plan, "Profil diagonal");
+            double dz = h / seg, a = w / 2;
+            var c = new[] { new Vec3(-a, -a, 0), new Vec3(a, -a, 0), new Vec3(a, a, 0), new Vec3(-a, a, 0) };
+            // kaki diteruskan 300 mm di atas balok puncak: semua balok datar tersambung ke badan/sayap kaki (fin plate), tidak bertemu di ujung kaki
+            foreach (var p in c) plan.Members.Add(new MemberProposal { Role = "Kolom", Profile = leg.Name, S = p, E = p + new Vec3(0, 0, h + 300), Roll = 90 });
+            for (int k = 1; k <= seg; k++)
+                for (int f = 0; f < 4; f++)
+                {
+                    var p0 = c[f] + new Vec3(0, 0, k * dz); var p1 = c[(f + 1) % 4] + new Vec3(0, 0, k * dz);
+                    plan.Members.Add(new MemberProposal { Role = "Balok", Profile = strut.Name, S = p0, E = p1, Anchor = k == seg ? Anchor.Atas : Anchor.Tengah });
+                    // diagonal zig-zag: arah berganti tiap segmen, jadi tidak ada diagonal yang saling menyilang
+                    var b0 = c[f] + new Vec3(0, 0, (k - 1) * dz); var b1 = c[(f + 1) % 4] + new Vec3(0, 0, (k - 1) * dz);
+                    var d0 = k % 2 == 1 ? b0 : b1; var d1 = k % 2 == 1 ? p1 : p0;
+                    if (k == 1) d0 += new Vec3(0, 0, 500);          // segmen bawah: buhul 500 mm di atas pelat dasar kaki
+                    if (k == seg) d1 -= new Vec3(0, 0, 500);        // segmen atas: buhul 500 mm di bawah balok puncak
+                    // ujung diagonal di titik buhul (kaki + pengaku datar); jarak mundur & pelat buhul diatur sambungannya
+                    plan.Members.Add(new MemberProposal { Role = "Bracing", Profile = diag.Name, S = d0, E = d1 });
+                }
+            // balok platform tengah di puncak (dua arah)
+            plan.Members.Add(new MemberProposal { Role = "Balok", Profile = strut.Name, S = new Vec3(0, -a, h), E = new Vec3(0, a, h), Anchor = Anchor.Atas });
+            plan.Summary = "Menara rangka 4 kaki " + Fmt.N(w / 1000) + " x " + Fmt.N(w / 1000) + " m, tinggi " + Fmt.N(h / 1000) + " m, " + seg + " segmen: kaki " + leg.Name + " ×4, pengaku datar " +
+                strut.Name + " ×" + (4 * seg) + ", diagonal " + diag.Name + " ×" + (4 * seg) + ", balok platform ×1.";
+            plan.Assumptions.Add("Beban tangki/peralatan dan angin menara dihitung engineer; ukuran profil di sini contoh");
+        }
+
+        // ------------------------------------------------------------------ jembatan
+        /// <summary>
+        /// Jembatan pejalan kaki. Rangka (truss Pratt): dua rangka di tepi, batang tepi atas & bawah, tegak, diagonal, balok lantai.
+        /// Gelagar: dua gelagar memanjang + balok lantai melintang.
+        /// </summary>
+        static void Bridge(AssistantPlan plan, Dictionary<string, double> st, Func<string, Dictionary<string, double>> P, Dictionary<string, Profile> prof, bool truss)
+        {
+            double span = Get(st, "bentang", 15000, plan, "Bentang jembatan");
+            double width = Get(st, "lebar", 2000, plan, "Lebar jembatan");
+            if (!truss && span > 12000 && !st.ContainsKey("gelagar")) { truss = true; plan.Assumptions.Add("Bentang > 12 m: dipakai jembatan rangka (truss), bukan gelagar"); }
+            var beam = Pick(prof, "balok anak", "WF200x100x5.5x8", plan, "Profil balok lantai");
+            if (truss)
+            {
+                double ht = Get(st, "tinggi", 1800, plan, "Tinggi rangka");
+                int np = st.TryGetValue("panel", out double npn) ? Math.Max(2, (int)npn) : Math.Max(2, (int)Math.Round(span / 2500));
+                if (!st.ContainsKey("panel")) plan.Assumptions.Add("Jumlah panel tidak disebut: dipakai " + np + " panel (±2,5 m)");
+                var chord = Pick(prof, "balok", "WF250x125x6x9", plan, "Profil batang tepi (chord)");
+                var vert = Pick(prof, "kolom", "WF200x100x5.5x8", plan, "Profil batang tegak");
+                var diag = Pick(prof, "bracing", "L75x75x8", plan, "Profil diagonal");
+                double dx = span / np, hc = chord.Extent(false) / 2;
+                foreach (double y in new[] { 0.0, width })
+                {
+                    // batang tepi diteruskan 300 mm melewati tegak ujung (dudukan perletakan), jadi semua tegak tersambung sama
+                    plan.Members.Add(new MemberProposal { Role = "Balok", Profile = chord.Name, S = new Vec3(-300, y, 0), E = new Vec3(span + 300, y, 0), Roll = 0 });
+                    plan.Members.Add(new MemberProposal { Role = "Balok", Profile = chord.Name, S = new Vec3(-300, y, ht), E = new Vec3(span + 300, y, ht), Roll = 0 });
+                    // tegak dari muka atas tepi bawah ke muka bawah tepi atas (pelat dasar & pelat tutup ke sayap tepi)
+                    for (int i = 0; i <= np; i++)
+                        plan.Members.Add(new MemberProposal { Role = "Kolom", Profile = vert.Name, S = new Vec3(i * dx, y, hc), E = new Vec3(i * dx, y, ht - hc), Roll = 90 });
+                    // Pratt: diagonal turun ke arah tengah bentang (tarik akibat beban gravitasi)
+                    for (int i = 0; i < np; i++)
+                    {
+                        bool left = (i + 0.5) * dx < span / 2;
+                        // diagonal dibaut ke tegak lewat pelat buhul, 400 mm dari muka tepi (titik buhul tepi dipakai pelat dasar/tutup tegak)
+                        var d0 = left ? new Vec3(i * dx, y, ht - hc - 400) : new Vec3((i + 1) * dx, y, ht - hc - 400);
+                        var d1 = left ? new Vec3((i + 1) * dx, y, hc + 400) : new Vec3(i * dx, y, hc + 400);
+                        plan.Members.Add(new MemberProposal { Role = "Bracing", Profile = diag.Name, S = d0, E = d1 });
+                    }
+                }
+                // balok lantai di tengah panel (titik panel dipakai kaki batang tegak), muka atas rata dengan batang tepi bawah
+                for (int i = 0; i < np; i++)
+                    plan.Members.Add(new MemberProposal { Role = "Balok anak", Profile = beam.Name, S = new Vec3((i + 0.5) * dx, 0, hc), E = new Vec3((i + 0.5) * dx, width, hc), Anchor = Anchor.Atas });
+                plan.Assumptions.Add("Diagonal disambung ke batang tegak 400 mm dari muka batang tepi (bukan di titik buhul): eksentrisitas dicek engineer");
+                plan.Summary = "Jembatan rangka (Pratt) bentang " + Fmt.N(span / 1000) + " m, lebar " + Fmt.N(width / 1000) + " m, tinggi rangka " + Fmt.N(ht / 1000) + " m, " + np +
+                    " panel: batang tepi " + chord.Name + " ×4, tegak " + vert.Name + " ×" + (2 * (np + 1)) + ", diagonal " + diag.Name + " ×" + (2 * np) + ", balok lantai " + beam.Name + " ×" + np + ".";
+            }
+            else
+            {
+                var girder = Pick(prof, "balok", "WF300x150x6.5x9", plan, "Profil gelagar");
+                double bsp = Get(P("balok anak"), "jarak", 1500, plan, "Jarak balok lantai");
+                foreach (double y in new[] { 0.0, width })
+                    plan.Members.Add(new MemberProposal { Role = "Balok", Profile = girder.Name, S = new Vec3(0, y, 0), E = new Vec3(span, y, 0), Anchor = Anchor.Atas });
+                int n = Math.Max(2, (int)Math.Ceiling(span / bsp - 1e-9) + 1);
+                for (int i = 0; i < n; i++)
+                {
+                    double x = span * i / (n - 1);
+                    plan.Members.Add(new MemberProposal { Role = "Balok anak", Profile = beam.Name, S = new Vec3(x, 0, 0), E = new Vec3(x, width, 0), Anchor = Anchor.Atas });
+                }
+                plan.Summary = "Jembatan gelagar bentang " + Fmt.N(span / 1000) + " m, lebar " + Fmt.N(width / 1000) + " m: gelagar " + girder.Name + " ×2, balok lantai " + beam.Name + " ×" + n + ".";
+            }
+            plan.Assumptions.Add("Lendutan, getaran, dan kapasitas jembatan dihitung engineer; tumpuan (perletakan) belum dimodelkan");
         }
 
         static string GuessRole(Profile p)

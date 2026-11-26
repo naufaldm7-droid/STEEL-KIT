@@ -67,6 +67,15 @@ namespace SteelKit.Tests
             yield return new DirectWeld { Chord = "SHS100x100x4.5", Cabang = "SHS60x60x3.2", Sudut = 90 };
             yield return new DirectWeld { Chord = "CHS114.3x4.5", Cabang = "CHS60.5x3.2", Sudut = 60 };
             yield return new StairTread { IbuTangga = "UNP200x80x7.5x11" };
+            // opsi sambungan tambahan
+            yield return new BasePlate { Kolom = "H400x400x13x21", Pola = AnchorPattern.Luar4, PolaPengaku = StiffenerLayout.Sayap4 };
+            yield return new BasePlate { Kolom = "WF400x200x8x13", Pola = AnchorPattern.Luar4, PolaPengaku = StiffenerLayout.BadanSayap6, JarakPengakuKolom = 1500, PanjangKolom = 6000 };
+            yield return new PurlinCleat { Gording = "C250x75x25x4.5", Rafter = "WF450x200x9x14", JumlahBaut = 2 };
+            yield return new PurlinCleat { Gording = "C250x75x25x4.5", Rafter = "WF450x200x9x14", JumlahBaut = 3 };
+            yield return new BracingGusset { Host = "WF400x200x8x13", Brace = "L75x75x8", SudutBrace = 35, Bentuk = GussetShape.Otomatis };
+            yield return new SplicePlate { Profil = "WF400x200x8x13", Sudut = 10, HaunchPuncak = true };
+            yield return new EndPlate { Balok = "WF600x200x11x17", Kolom = "H400x400x13x21", BarisTambahan = 2, JarakBaris = 100 };
+            yield return new CapPlate { Kolom = "H200x200x8x12", Balok = "WF250x125x6x9", Sudut = 5 };
         }
 
         [Fact]
@@ -276,8 +285,12 @@ namespace SteelKit.Tests
             Assert.Contains(a, j => j.Type == ConnType.PelatTutup); AllOk(a);
             // kolom angin di bawah rafter miring
             double t = Math.Tan(10 * Math.PI / 180);
-            var b = Detect(M("WF250x125x6x9", 3000, 0, 0, 3000, 0, 6000 + 3000 * t - 200 / Math.Cos(10 * Math.PI / 180)), M("WF400x200x8x13", 0, 0, 6000, 10000, 0, 6000 + 10000 * t));
+            var b = Detect(M("WF250x125x6x9", 3000, 0, 0, 3000, 0, 6000 + 3000 * t - 200 / Math.Cos(10 * Math.PI / 180)), M("WF400x200x8x13", 0, 0, 6000, 10000, 0, 6000 + 10000 * t),
+                M("WF400x200x8x13", 0, 0, 0, 0, 0, 6000));                       // kolom utama di ujung rafter
             Assert.Contains(b, j => j.Type == ConnType.KolomAngin); AllOk(b);
+            // kanopi T: balok miring hanya ditopang satu kolom -> pelat tutup miring
+            var bt = Detect(M("WF250x125x6x9", 3000, 0, 0, 3000, 0, 6000 + 3000 * t - 200 / Math.Cos(10 * Math.PI / 180)), M("WF400x200x8x13", 0, 0, 6000, 6000, 0, 6000 + 6000 * t));
+            Assert.Contains(bt, j => j.Type == ConnType.PelatTutup && ((CapPlate)j.Conn).Sudut > 9); AllOk(bt);
             // tiang di atas balok
             var c = Detect(M("WF400x200x8x13", -3000, 0, 0, 3000, 0, 0), M("H150x150x7x10", 0, 0, 200, 0, 0, 2000, 90));
             Assert.Contains(c, j => j.Type == ConnType.PelatDasar && ((BasePlate)j.Conn).Dudukan == BaseSupport.Baja); AllOk(c);

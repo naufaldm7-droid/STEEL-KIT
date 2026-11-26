@@ -410,18 +410,24 @@ namespace SteelKit.Acad
             double k = Draw.UnitK(db);
             double h = (textMm > 0 ? textMm : Store.TableText) * k;
             int nc = rows.Max(r => r.Length);
+            // kolom angka rata kanan, kolom teks rata kiri, baris judul & kepala di tengah (baris pertama rows = kepala bila semua sel teks)
+            bool headerRow = rows.Count > 1 && rows[0].All(c => !IsNumber(c)) && rows.Skip(1).Any(r => r.Any(IsNumber));
+            var numericCol = Enumerable.Range(0, nc).Select(c => rows.Skip(headerRow ? 1 : 0).Where(r => c < r.Length && !string.IsNullOrWhiteSpace(r[c]) && r[c] != "-")
+                .All(r => IsNumber(r[c]))).ToArray();
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 Draw.Layer(tr, db, Draw.LayTable);
+                var st = Std.TextStyle(tr, db);
                 var t = new Table();
                 t.SetDatabaseDefaults(db);
-                t.TableStyle = db.Tablestyle;
+                t.TableStyle = Std.TableStyle(tr, db, h);
                 t.SetSize(rows.Count + 1, nc);
                 t.Position = ptUcs;
                 t.Layer = Draw.LayTable;
                 t.MergeCells(CellRange.Create(t, 0, 0, 0, nc - 1));
                 t.Cells[0, 0].TextString = title;
-                t.Cells[0, 0].TextHeight = h * 1.2;
+                t.Cells[0, 0].TextHeight = h * Std.H3 / Std.H4;
+                t.Cells[0, 0].TextStyleId = st;
                 t.Cells[0, 0].Alignment = CellAlignment.MiddleCenter;
                 for (int r = 0; r < rows.Count; r++)
                     for (int c = 0; c < nc; c++)
@@ -429,14 +435,16 @@ namespace SteelKit.Acad
                         var cell = t.Cells[r + 1, c];
                         cell.TextString = c < rows[r].Length ? rows[r][c] : "";
                         cell.TextHeight = h;
-                        cell.Alignment = c == 0 ? CellAlignment.MiddleLeft : CellAlignment.MiddleCenter;
+                        cell.TextStyleId = st;
+                        cell.Alignment = headerRow && r == 0 ? CellAlignment.MiddleCenter : numericCol[c] && c > 0 ? CellAlignment.MiddleRight : CellAlignment.MiddleLeft;
                     }
                 for (int c = 0; c < nc; c++)
                 {
                     int chars = rows.Max(r => c < r.Length ? r[c].Length : 0);
-                    t.Columns[c].Width = Math.Max(4, chars) * h * 0.85 + h * 1.6;
+                    t.Columns[c].Width = Math.Max(3, chars) * h * 0.72 + h * 2.0;
                 }
-                for (int r = 0; r < rows.Count + 1; r++) t.Rows[r].Height = h * 2.0;
+                t.Rows[0].Height = h * Std.H3 / Std.H4 * 2.0;
+                for (int r = 1; r < rows.Count + 1; r++) t.Rows[r].Height = h * 2.2;
                 t.GenerateLayout();
                 t.TransformBy(ucs);
                 var space = (BlockTableRecord)tr.GetObject(spaceId.IsNull ? db.CurrentSpaceId : spaceId, OpenMode.ForWrite);
@@ -446,6 +454,8 @@ namespace SteelKit.Acad
                 return id;
             }
         }
+
+        static bool IsNumber(string s) => !string.IsNullOrWhiteSpace(s) && System.Text.RegularExpressions.Regex.IsMatch(s.Trim(), @"^[-+]?\d[\d.,]*$");
 
         // =====================================================================================
         // SKBERAT: daftar berat (BOQ baja) dari batang di gambar -> tabel + CSV

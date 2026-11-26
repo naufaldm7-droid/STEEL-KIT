@@ -121,8 +121,9 @@ namespace SteelKit.Acad
                         double scale;
                         if (c.iso) AddViewport(tr, db, ps1, new Point3d(c.cx, c.cy + 5, 0), gw - 12, gh - 22, extM, c.dir, k, out scale, true);
                         else StructureView(tr, db, ps1, cell, extM, c.dir, k, mems, grid, levels, out scale);
-                        Label(tr, ps1, new Point3d(c.cx, cell.Y0 + 9, 0), c.title, scale, 4, cell.X1 - 3);
+                        Label(tr, ps1, new Point3d(c.cx, cell.Y0 + 11.5, 0), c.title, scale, Std.H2, cell.X1 - 3);
                     }
+                    Std.ApplyAll(tr, db, ps1);
                     tr.Commit();
                 }
                 int sheets = 0;
@@ -173,7 +174,7 @@ namespace SteelKit.Acad
                         blockId = bt.Add(btr); tr.AddNewlyCreatedDBObject(btr, true);
                         ConnDraw.Detail(tr, db, btr, c, Point3d.Origin, 2.5 * sc * k);
                         b = ConnDraw.LastBounds; s = sc; all = ConnDraw.LastBoundsAll ?? b;
-                        if ((b[2] - b[0]) / k / sc <= cellW * 0.97 && (b[3] - b[1]) / k / sc <= cellH * 0.97 || sc == tryScales.Last()) break;
+                        if ((all[2] - all[0]) / k / sc <= cellW * 0.97 && (all[3] - all[1]) / k / sc <= cellH * 0.97 || sc == tryScales.Last()) break;   // gambar + catatan harus muat
                         foreach (ObjectId eid in btr) tr.GetObject(eid, OpenMode.ForWrite).Erase();
                         btr.Erase();
                     }
@@ -209,13 +210,14 @@ namespace SteelKit.Acad
                         var b = part[i].b;
                         // catatan yang menjorok ikut ditampilkan bila masih muat di sel pada skala terpilih
                         var ab = part[i].all;
-                        if ((ab[2] - ab[0]) / k / part[i].s * 1.06 + 4 <= gw - 10 && (ab[3] - ab[1]) / k / part[i].s * 1.06 + 4 <= gh - 18) b = ab;
+                        b = ab;   // skala sudah dipilih supaya gambar + catatan muat: viewport selalu memuat catatan
                         var e = new Extents3d(new Point3d(b[0], b[1], 0), new Point3d(b[2], b[3], 0));
                         double sc0 = part[i].s;
                         double vwP = Math.Min(gw - 10, (b[2] - b[0]) / k / sc0 * 1.06 + 4), vhP = Math.Min(gh - 18, (b[3] - b[1]) / k / sc0 * 1.06 + 4);
                         AddViewport(tr, db, ps, new Point3d(cx, cy + 4, 0), vwP, vhP, e, Vector3d.ZAxis, k, out double scale, false, detailScales.Where(v => v >= sc0).ToArray(), 1.0 / 1.06);
-                        Label(tr, ps, new Point3d(cx, cy - gh / 2 + 8, 0), "DETAIL " + (s0 + i + 1) + " - " + part[i].c.Title.ToUpperInvariant(), scale, 3.5, cx + gw / 2 - 3);
+                        Label(tr, ps, new Point3d(cx, cy - gh / 2 + 12, 0), "DETAIL " + (s0 + i + 1) + " - " + part[i].c.Title.ToUpperInvariant(), scale, Std.H2, cx + gw / 2 - 3);
                     }
+                    Std.ApplyAll(tr, db, ps);
                     tr.Commit();
                 }
             }
@@ -224,7 +226,7 @@ namespace SteelKit.Acad
 
         /// <summary>Kunci detail: sambungan yang hanya beda sudut/posisi kecil memakai satu detail yang sama.</summary>
         public static string DetailKey(Connection c)
-            => System.Text.RegularExpressions.Regex.Replace(c.Serialize(), @"(Sudut\w*|Heel\w*|Arah\w*|Geser\w*|Selisih\w*|Elevasi\w*|PanjangRafter|Batang)=[^;]*;?", "");
+            => System.Text.RegularExpressions.Regex.Replace(c.Serialize(), @"(Sudut\w*|Heel\w*|Arah\w*|Geser\w*|Selisih\w*|Elevasi\w*|PanjangRafter|PanjangKolom|Batang)=[^;]*;?", "");
 
         // ------------------------------------------------------------------ pembantu
         static string Short(string t) => t.Length > 24 ? t.Substring(0, 24) : t;
@@ -290,7 +292,8 @@ namespace SteelKit.Acad
                 var rec = new LayerTableRecord { Name = n, Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, c), IsPlottable = plot };
                 lt.Add(rec); tr.AddNewlyCreatedDBObject(rec, true);
             }
-            Draw.Layer(tr, db, Draw.LayDim); Draw.Layer(tr, db, Draw.LayText);
+            Draw.Layer(tr, db, Draw.LayDim); Draw.Layer(tr, db, Draw.LayText); Draw.Layer(tr, db, Draw.LayTable);
+            Std.LayerWeights(tr, db);
         }
 
         class SheetInfo { public string Project = "", Title = "", Sub = "", Prefix = "SK-ST-"; public int No = 1, Count = 1; }
@@ -315,52 +318,55 @@ namespace SteelKit.Acad
             void Ln(double x0, double y0, double x1, double y1) => Add(new Line(new Point3d(x0, y0, 0), new Point3d(x1, y1, 0)));
             void Tx(string s, double x, double y, double h, AttachmentPoint ap = AttachmentPoint.TopLeft, double w = 0)
                 => Add(new MText { Contents = s, Location = new Point3d(x, y, 0), TextHeight = h, Attachment = ap, Width = w });
+            const double pad = 1.5;      // jarak teks dari garis kotak, sama di semua kolom
+            // kolom isian: label kecil di kiri atas, nilai di kiri bawah (rata kiri, jarak tepi sama)
             void Field(string label, string value, double x, double y, double w, double h, double vh)
             {
-                Tx(label, x + 1.2, y + h - 1, 1.6);
-                if (!string.IsNullOrEmpty(value)) Tx(value, x + 1.2, y + (h - 2.6) / 2, vh, AttachmentPoint.MiddleLeft, w - 2.4);
+                Tx(label, x + pad, y + h - pad, Std.H4);
+                if (!string.IsNullOrEmpty(value)) Tx(value, x + pad, y + pad, vh, AttachmentPoint.BottomLeft, w - 2 * pad);
             }
-            Add(Rect(10, 10, sh.W - 10, sh.H - 10));
+            var frame = Rect(10, 10, sh.W - 10, sh.H - 10); Add(frame); frame.LineWeight = LineWeight.LineWeight050;
             const double tbw = 185, tbh = 45;
             double x0 = sh.W - 10 - tbw, y0 = 10, xb = x0 + 62, xr = sh.W - 10;
-            Add(Rect(x0, y0, xr, y0 + tbh));
+            var tbox = Rect(x0, y0, xr, y0 + tbh); Add(tbox); tbox.LineWeight = LineWeight.LineWeight035;
             Ln(xb, y0, xb, y0 + tbh);
-            // kiri: tabel revisi + keterangan pembuat
+            // kiri: tabel revisi (kepala + 3 baris) + keterangan pembuat
             double ry = y0 + tbh;
             Ln(x0, y0 + 20, xb, y0 + 20);
-            for (int i = 1; i <= 4; i++) Ln(x0, ry - 5 * i, xb, ry - 5 * i);
+            for (int i = 1; i <= 4; i++) Ln(x0, ry - 6.25 * i, xb, ry - 6.25 * i);
             Ln(x0 + 9, y0 + 20, x0 + 9, ry); Ln(x0 + 27, y0 + 20, x0 + 27, ry);
-            Tx("REV", x0 + 4.5, ry - 2.5, 1.6, AttachmentPoint.MiddleCenter);
-            Tx("TANGGAL", x0 + 18, ry - 2.5, 1.6, AttachmentPoint.MiddleCenter);
-            Tx("URAIAN", x0 + 44.5, ry - 2.5, 1.6, AttachmentPoint.MiddleCenter);
-            Tx("0", x0 + 4.5, ry - 7.5, 1.8, AttachmentPoint.MiddleCenter);
-            Tx(DateTime.Now.ToString("dd-MM-yyyy"), x0 + 18, ry - 7.5, 1.8, AttachmentPoint.MiddleCenter);
-            Tx("Terbit untuk review", x0 + 28, ry - 7.5, 1.8, AttachmentPoint.MiddleLeft);
-            Tx("{\\H1.4x;STEEL KIT}\\PGeometri, gambar & quantity dibuat dengan Steel Kit untuk AutoCAD.", x0 + 2, y0 + 18, 1.6, AttachmentPoint.TopLeft, 58);
+            double hy = ry - 3.125, r1 = ry - 6.25 - 3.125;
+            Tx("REV", x0 + 4.5, hy, Std.H4, AttachmentPoint.MiddleCenter);
+            Tx("TANGGAL", x0 + 18, hy, Std.H4, AttachmentPoint.MiddleCenter);
+            Tx("URAIAN", x0 + 27 + pad, hy, Std.H4, AttachmentPoint.MiddleLeft);
+            Tx("0", x0 + 4.5, r1, Std.H4, AttachmentPoint.MiddleCenter);
+            Tx(DateTime.Now.ToString("dd-MM-yyyy"), x0 + 18, r1, Std.H4, AttachmentPoint.MiddleCenter);
+            Tx("Terbit untuk review", x0 + 27 + pad, r1, Std.H4, AttachmentPoint.MiddleLeft);
+            Tx("STEEL KIT", x0 + pad, y0 + 20 - pad, Std.H3);
+            Tx("Geometri, gambar & quantity dibuat dengan Steel Kit untuk AutoCAD.", x0 + pad, y0 + 20 - pad - Std.H3 - 1.5, Std.H4, AttachmentPoint.TopLeft, 62 - 2 * pad);
             // kanan: proyek, judul, penanggung jawab, data lembar
             Ln(xb, y0 + 35, xr, y0 + 35); Ln(xb, y0 + 20, xr, y0 + 20); Ln(xb, y0 + 10, xr, y0 + 10);
-            Field("PROYEK", inf.Project, xb, y0 + 35, xr - xb, 10, 3);
-            Tx("JUDUL GAMBAR", xb + 1.2, y0 + 34, 1.6);
-            Tx(inf.Title, xb + 1.2, y0 + 30.5, 3.6, AttachmentPoint.TopLeft, xr - xb - 2.4);
-            Tx(inf.Sub, xb + 1.2, y0 + 24.5, 2.4, AttachmentPoint.TopLeft, xr - xb - 2.4);
+            Field("PROYEK", inf.Project, xb, y0 + 35, xr - xb, 10, Std.H2);
+            Tx("JUDUL GAMBAR", xb + pad, y0 + 35 - pad, Std.H4);
+            Tx(inf.Title, xb + pad, y0 + 20 + pad + Std.H3 + 2.2, Std.H1, AttachmentPoint.BottomLeft, xr - xb - 2 * pad);
+            Tx(inf.Sub, xb + pad, y0 + 20 + pad, Std.H3, AttachmentPoint.BottomLeft, xr - xb - 2 * pad);
             double cw = (xr - xb) / 3;
             for (int i = 1; i < 3; i++) Ln(xb + cw * i, y0 + 10, xb + cw * i, y0 + 20);
-            Field("DIGAMBAR", Store.Get("digambar", ""), xb, y0 + 10, cw, 10, 2.4);
-            Field("DIPERIKSA", Store.Get("diperiksa", ""), xb + cw, y0 + 10, cw, 10, 2.4);
-            Field("DISETUJUI", Store.Get("disetujui", ""), xb + 2 * cw, y0 + 10, cw, 10, 2.4);
+            Field("DIGAMBAR", Store.Get("digambar", ""), xb, y0 + 10, cw, 10, Std.H3);
+            Field("DIPERIKSA", Store.Get("diperiksa", ""), xb + cw, y0 + 10, cw, 10, Std.H3);
+            Field("DISETUJUI", Store.Get("disetujui", ""), xb + 2 * cw, y0 + 10, cw, 10, Std.H3);
             double dw = (xr - xb) / 4;
             for (int i = 1; i < 4; i++) Ln(xb + dw * i, y0, xb + dw * i, y0 + 10);
-            Field("SKALA", "SEPERTI TERTERA", xb, y0, dw, 10, 2);
-            Field("TANGGAL", DateTime.Now.ToString("dd-MM-yyyy"), xb + dw, y0, dw, 10, 2.4);
-            Field("NO. GAMBAR", inf.Prefix + inf.No.ToString("00", CultureInfo.InvariantCulture), xb + 2 * dw, y0, dw, 10, 2.4);
-            Field("LEMBAR", inf.No + " / " + inf.Count, xb + 3 * dw, y0, dw, 10, 2.4);
-            // catatan umum di kiri kotak judul (MText biasa: boleh disunting langsung)
-            double nx0 = 15, nx1 = x0 - 5;
+            Field("SKALA", "SEPERTI TERTERA", xb, y0, dw, 10, Std.H4);
+            Field("TANGGAL", DateTime.Now.ToString("dd-MM-yyyy"), xb + dw, y0, dw, 10, Std.H3);
+            Field("NO. GAMBAR", inf.Prefix + inf.No.ToString("00", CultureInfo.InvariantCulture), xb + 2 * dw, y0, dw, 10, Std.H3);
+            Field("LEMBAR", inf.No + " / " + inf.Count, xb + 3 * dw, y0, dw, 10, Std.H3);
+            // catatan umum di kiri kotak judul: judul 2,5 + isi 1,8, rata kiri, sejajar atas kotak judul
+            double nx0 = 15, nx1 = x0 - 6;
             var notes = Store.Get("catatan", "");
             var lines = string.IsNullOrWhiteSpace(notes) ? DefaultNotes : notes.Split('|');
-            string body = "{\\H1.3x;\\LCATATAN UMUM}\\P" + string.Join("\\P", lines.Select((t, i) => (i + 1) + ". " + t.Trim()));
-            double nh = sh.Name == "A1" ? 2.2 : 1.8;
-            Tx(body, nx0, y0 + tbh, nh, AttachmentPoint.TopLeft, Math.Min(nx1 - nx0, sh.Name == "A1" ? 300 : 400));
+            Tx("{\\LCATATAN UMUM}", nx0, y0 + tbh, Std.H3);
+            Tx(string.Join("\\P", lines.Select((t, i) => (i + 1) + ".\\~" + t.Trim())), nx0, y0 + tbh - Std.H3 - 2, sh.Name == "A1" ? Std.H3 : Std.H4, AttachmentPoint.TopLeft, nx1 - nx0);
         }
 
         static Polyline Rect(double x0, double y0, double x1, double y1)
@@ -372,25 +378,33 @@ namespace SteelKit.Acad
             return p;
         }
 
-        /// <summary>Judul tampak + skala, dan skala grafis di kanannya (dilewati bila melewati batas kanan sel).</summary>
+        /// <summary>
+        /// Blok label tampak, seragam di semua lembar: judul 3,5 mm bergaris bawah di tengah, lalu satu baris di tengah
+        /// berisi "SKALA 1:x" (2,5 mm) dan skala grafis. Titik 'at' = tengah atas judul. Tinggi blok ±11 mm.
+        /// </summary>
         static void Label(Transaction tr, BlockTableRecord ps, Point3d at, string text, double scale, double h, double maxX = double.MaxValue)
         {
             void Add(Entity e) { e.Layer = LayTitle; ps.AppendEntity(e); tr.AddNewlyCreatedDBObject(e, true); }
-            Add(new MText { Contents = "{\\L" + text + "}\\P{\\H0.7x;SKALA 1:" + scale.ToString("0.##", CultureInfo.InvariantCulture) + "}", Location = at, TextHeight = h, Attachment = AttachmentPoint.TopCenter });
+            Add(new MText { Contents = "{\\L" + text + "}", Location = at, TextHeight = Std.H2, Attachment = AttachmentPoint.TopCenter });
             if (scale <= 0) return;
+            string sc = "SKALA 1:" + scale.ToString("0.##", CultureInfo.InvariantCulture);
+            double y2 = at.Y - Std.H2 - 2.2;                       // atas baris kedua
+            double tw = Std.Width(sc, Std.H3);
             double L = ScaleBar.ModelLength(scale), pl = L / scale;
             string end = ScaleBar.Label(L);
-            string sc = "SKALA 1:" + scale.ToString("0.##", CultureInfo.InvariantCulture);
-            double x0 = at.X + Math.Max(DimTiers.TextWidth(text, h), DimTiers.TextWidth(sc, h * 0.7)) / 2 + 6, y = at.Y - h * 1.5, bh = 1.4;
-            if (x0 + pl + DimTiers.TextWidth(end, 1.8) + 2 > maxX) return;
+            bool bar = at.X + (tw + 3 + pl) / 2 + Std.Width(end, Std.H4) / 2 + 1 <= maxX;
+            double group = bar ? tw + 3 + pl : tw, x0 = at.X - group / 2;
+            Add(new MText { Contents = sc, Location = new Point3d(x0, y2, 0), TextHeight = Std.H3, Attachment = AttachmentPoint.TopLeft });
+            if (!bar) return;
+            double bx = x0 + tw + 3, bh = 1.4, by = y2 - Std.H3 / 2 - bh / 2;   // batang sejajar tengah teks skala
             for (int i = 0; i < 4; i++)
             {
-                double a = x0 + pl * i / 4, b = x0 + pl * (i + 1) / 4;
-                if (i % 2 == 0) Add(new Solid(new Point3d(a, y, 0), new Point3d(b, y, 0), new Point3d(a, y + bh, 0), new Point3d(b, y + bh, 0)));
+                double a = bx + pl * i / 4, b = bx + pl * (i + 1) / 4;
+                if (i % 2 == 0) Add(new Solid(new Point3d(a, by, 0), new Point3d(b, by, 0), new Point3d(a, by + bh, 0), new Point3d(b, by + bh, 0)));
             }
-            Add(Rect(x0, y, x0 + pl, y + bh));
-            Add(new MText { Contents = "0", Location = new Point3d(x0, y - 0.8, 0), TextHeight = 1.8, Attachment = AttachmentPoint.TopCenter });
-            Add(new MText { Contents = end, Location = new Point3d(x0 + pl, y - 0.8, 0), TextHeight = 1.8, Attachment = AttachmentPoint.TopCenter });
+            Add(Rect(bx, by, bx + pl, by + bh));
+            Add(new MText { Contents = "0", Location = new Point3d(bx, by - 0.8, 0), TextHeight = Std.H4, Attachment = AttachmentPoint.TopCenter });
+            Add(new MText { Contents = end, Location = new Point3d(bx + pl, by - 0.8, 0), TextHeight = Std.H4, Attachment = AttachmentPoint.TopCenter });
         }
 
         /// <summary>Sumbu DCS viewport (kanan, atas) untuk arah pandang tertentu.</summary>
@@ -465,7 +479,7 @@ namespace SteelKit.Acad
         {
             Dcs(dir, out Vector3d dx, out Vector3d dy);
             bool elev = Math.Abs(dy.DotProduct(Vector3d.ZAxis)) > 0.99;
-            double mL = elev ? 6 : 14, mR = elev ? 28 : 16, mT = 13, mB = 25;
+            double mL = elev ? 6 : 15, mR = elev ? 30 : 17, mT = 14, mB = 28;
             double ix0 = cell.X0 + mL, ix1 = cell.X1 - mR, iy0 = cell.Y0 + mB, iy1 = cell.Y1 - mT;
             var vp = AddViewport(tr, db, ps, new Point3d((ix0 + ix1) / 2, (iy0 + iy1) / 2, 0), ix1 - ix0, iy1 - iy0, ext, dir, k, out scale, false, null, 0.97);
             // batas model di kertas, lalu viewport dikecilkan pas model (anotasi di luar viewport)
@@ -479,7 +493,7 @@ namespace SteelKit.Acad
             void Add(Entity e, string layer) { e.Layer = layer; ps.AppendEntity(e); tr.AddNewlyCreatedDBObject(e, true); }
             var used = new List<double[]>();
             Draw.Layer(tr, db, Draw.LayAxis);
-            const double r = 3.2;
+            const double r = 4.0;
             var vert = new List<(double p, double pos)>(); var hor = new List<(double p, double pos)>();
             var tgt = vp.ViewTarget;
             foreach (var (axis, lines) in new[] { (Vector3d.XAxis, grid.X), (Vector3d.YAxis, grid.Y) })
@@ -499,7 +513,7 @@ namespace SteelKit.Acad
                     else { l0 = new Point3d(mx1 + 2, p.Y, 0); l1 = new Point3d(mx0 - off + r, p.Y, 0); bc = new Point3d(mx0 - off, p.Y, 0); hor.Add((p.Y, g.Pos)); }
                     Add(new Line(l0, l1) { LinetypeScale = 0.25 }, Draw.LayAxis);
                     Add(new Circle(bc, Vector3d.ZAxis, r), Draw.LayText);
-                    Add(new MText { Contents = g.Label, Location = bc, TextHeight = 2.8, Attachment = AttachmentPoint.MiddleCenter }, Draw.LayText);
+                    Add(new MText { Contents = g.Label, Location = bc, TextHeight = Std.H2, Attachment = AttachmentPoint.MiddleCenter }, Draw.LayText);
                     used.Add(new[] { bc.X - r, bc.Y - r, bc.X + r, bc.Y + r });
                 }
             }
@@ -518,16 +532,17 @@ namespace SteelKit.Acad
                     Add(new Solid(new Point3d(x + 3, py, 0), new Point3d(x + 1.6, py + 2.2, 0), new Point3d(x + 4.4, py + 2.2, 0)), Draw.LayText);
                     // dua elevasi berdekatan: yang bawah angkanya di bawah garis + nama di sampingnya, yang atas tetap di atas garis
                     bool below = tightAbove && !tightBelow;
-                    string txt = levels[i].Text + (below || tightBelow ? "  {\\H0.73x;" + levels[i].Name + "}" : "");
-                    Add(Masked(new MText { Contents = txt, Location = new Point3d(x + 5.5, below ? py - 0.6 : py + 0.6, 0), TextHeight = 2.2, Attachment = below ? AttachmentPoint.TopLeft : AttachmentPoint.BottomLeft }), Draw.LayText);
-                    if (!below && !tightBelow) Add(Masked(new MText { Contents = levels[i].Name, Location = new Point3d(x + 5.5, py - 0.6, 0), TextHeight = 1.6, Attachment = AttachmentPoint.TopLeft }), Draw.LayText);
+                    string txt = levels[i].Text + (below || tightBelow ? "  {\\H0.72x;" + levels[i].Name + "}" : "");
+                    Add(Masked(new MText { Contents = txt, Location = new Point3d(x + 5.5, below ? py - 0.6 : py + 0.6, 0), TextHeight = Std.H3, Attachment = below ? AttachmentPoint.TopLeft : AttachmentPoint.BottomLeft }), Draw.LayText);
+                    if (!below && !tightBelow) Add(Masked(new MText { Contents = levels[i].Name, Location = new Point3d(x + 5.5, py - 0.8, 0), TextHeight = Std.H4, Attachment = AttachmentPoint.TopLeft }), Draw.LayText);
                 }
                 used.Add(new[] { mx1 + 1, ys.Min() - 3, mx1 + 40, ys.Max() + 3.5 });
             }
             // marking batang: satu label per marking per tampak
             var lim = new[] { cell.X0 + 1, cell.Y0 + 11, cell.X1 - 1, cell.Y1 - 1 };
             int placed = 0;
-            var offs = new[] { (8.0, 7.0), (-8.0, 7.0), (8.0, -7.0), (-8.0, -7.0), (13.0, 12.0), (-13.0, 12.0), (13.0, -12.0), (-13.0, -12.0), (18.0, 3.0), (-18.0, 3.0), (5.0, 16.0), (-5.0, 16.0) };
+            // kaki leader selalu 45°, panjang bertingkat; kanan-atas dulu, lalu kiri-atas, kanan-bawah, kiri-bawah
+            var offs = new[] { 6.0, 9, 12, 15, 19 }.SelectMany(d => new[] { (d, d), (-d, d), (d, -d), (-d, -d) }).ToArray();
             // satu label per jenis + profil; marking yang berbeda pola lubangnya ditulis sebagai rentang (C1–C6), rinciannya di lembar fabrikasi
             foreach (var grp in mems.Where(m => !string.IsNullOrEmpty(m.Mark)).GroupBy(m => Prefix(m.Mark) + "|" + m.Tag.Name)
                 .OrderBy(g => MarkRank(g.First().Mark)).ThenBy(g => g.Key, StringComparer.Ordinal))
@@ -543,7 +558,7 @@ namespace SteelKit.Acad
                 if (cand.Count == 0) continue;
                 var mk = grp.Select(m => m.Mark).Distinct().OrderBy(m => MarkNo(m)).ToList();
                 string text = (mk.Count == 1 ? mk[0] : mk.First() + "–" + mk.Last()) + " " + grp.First().Tag.Name;
-                double tw = DimTiers.TextWidth(text, 2.2) + 1, th = 3;
+                double tw = Std.Width(text, Std.H3) + 1, th = 3.5;
                 bool done = false;
                 foreach (var c in cand)
                 {
@@ -553,7 +568,7 @@ namespace SteelKit.Acad
                         var rect = sx > 0 ? new[] { kx + 2.5, ky - th / 2, kx + 2.5 + tw, ky + th / 2 } : new[] { kx - 2.5 - tw, ky - th / 2, kx - 2.5, ky + th / 2 };
                         if (rect[0] < lim[0] || rect[1] < lim[1] || rect[2] > lim[2] || rect[3] > lim[3]) continue;
                         if (used.Any(u => rect[0] < u[2] && rect[2] > u[0] && rect[1] < u[3] && rect[3] > u[1])) continue;
-                        PaperLeader(tr, ps, c.p, new Point3d(kx, ky, 0), sx, text, 2.2);
+                        PaperLeader(tr, ps, c.p, new Point3d(kx, ky, 0), sx, text, Std.H3);
                         used.Add(rect); placed++; done = true;
                         break;
                     }
@@ -622,7 +637,7 @@ namespace SteelKit.Acad
             var d = new RotatedDimension(horizontal ? 0 : Math.PI / 2, a, b, dimLine, text ?? Math.Round(Math.Abs(valueMm)).ToString("0", CultureInfo.InvariantCulture), db.Dimstyle);
             d.SetDatabaseDefaults(db);
             d.Layer = Draw.LayDim;
-            d.Dimscale = 1; d.Dimtxt = h; d.Dimasz = h * 0.8; d.Dimexo = 1.5; d.Dimexe = 1.5; d.Dimgap = 0.8; d.Dimtad = 1;
+            d.Dimscale = 1; d.Dimtxt = h; d.Dimasz = Std.Arrow; d.Dimexo = 1.0; d.Dimexe = 1.5; d.Dimgap = 0.8; d.Dimtad = 1; d.Dimtih = false; d.Dimtoh = false;
             ps.AppendEntity(d); tr.AddNewlyCreatedDBObject(d, true);
         }
     }

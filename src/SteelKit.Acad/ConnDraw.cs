@@ -43,6 +43,7 @@ namespace SteelKit.Acad
                 tr.AddNewlyCreatedDBObject(rec, true);
             }
             foreach (var l in new[] { Draw.LayDim, Draw.LayText }) Draw.Layer(tr, db, l);
+            Std.LayerWeights(tr, db);
         }
 
         static Matrix3d PartMatrix(Part p, double k)
@@ -166,12 +167,18 @@ namespace SteelKit.Acad
             }
             if (cuts != null)
             {
-                // pemotong dari sambungan ini menggantikan pemotong lama yang sama posisinya
+                // pemotong dari sambungan ini menggantikan pemotong lama yang sama posisinya (asal frame atau titik tengah sama).
+                // Pemotong dari pemanggilan ini tidak saling menghapus: coping atas & bawah berbagi asal frame, keduanya dipakai.
+                Vec3 Mid(Cutter x) => x.F.O + x.F.U * ((x.X0 + x.X1) / 2) + x.F.V * ((x.Y0 + x.Y1) / 2) + x.F.W * ((x.Z0 + x.Z1) / 2);
+                double tol = 1e-3 * Math.Max(1, k * 1000);
+                var fresh = new List<Cutter>();
                 foreach (var c in cuts)
                 {
                     var w = MemberBuild.ToWorld(c, fMm, k);
-                    m.Cuts.RemoveAll(x => (Draw.P(x.F.O) - Draw.P(w.F.O)).Length < 1e-3 * Math.Max(1, k * 1000) && x.Cylinder == w.Cylinder);
-                    m.Cuts.Add(w);
+                    var mw = Mid(w);
+                    m.Cuts.RemoveAll(x => !fresh.Contains(x) && x.Cylinder == w.Cylinder && ((x.F.O - w.F.O).Length < tol || (Mid(x) - mw).Length < tol));
+                    if (fresh.Any(x => x.Cylinder == w.Cylinder && (Mid(x) - mw).Length < tol)) continue;   // kembar di sambungan yang sama
+                    m.Cuts.Add(w); fresh.Add(w);
                 }
             }
             MemberBuild.Apply(tr, ent, m);
@@ -197,6 +204,7 @@ namespace SteelKit.Acad
             double k = Draw.UnitK(db);
             Layers(tr, db);
             var r = c.Build();
+            var before = new HashSet<ObjectId>(space.Cast<ObjectId>());
             double h = textHeight > 0 ? textHeight : TextHeight(r, k);
             double x = basePt.X;
             double top = basePt.Y;
@@ -215,11 +223,12 @@ namespace SteelKit.Acad
             var rows = new List<string[]> { new[] { "Bahan", "Uraian", "Jml", "kg" } };
             foreach (var b in r.Boq) rows.Add(new[] { b.Item, b.Spec, b.Count.ToString(CultureInfo.CurrentCulture), b.TotalKg > 0 ? Draw.N(b.TotalKg, "0.0") : "-" });
             rows.Add(new[] { "TOTAL", "baja (tanpa grout/beton)", "", Draw.N(r.Boq.Sum(b => b.TotalKg), "0.0") });
-            double tw = Enumerable.Range(0, 4).Sum(ci => Math.Max(4, rows.Max(rw => rw[ci].Length)) * h * 0.9 * 0.85 + h * 0.9 * 1.6);
-            double tableH = (rows.Count + 2) * h * 0.9 * 2.0;
+            double th = h * Std.H4 / Std.H3;
+            double tw = Enumerable.Range(0, 4).Sum(ci => Math.Max(3, rows.Max(rw => rw[ci].Length)) * th * 0.72 + th * 2.0);
+            double tableH = rows.Count * th * 2.2 + h * 2.0;
             // area terlarang untuk catatan: gambar tampak lain (+ ruang dimensi), judul tampak, tabel bahan
             var blocked = new List<(int vi, double[] r)>();
-            double limX0 = basePt.X, limX1 = basePt.X, limY0 = basePt.Y - 6 * h;
+            double limX0 = basePt.X - 25 * h, limX1 = basePt.X, limY0 = basePt.Y - 6 * h;   // rel kiri boleh di kiri gambar
             {
                 double px = x, ptop = top;
                 for (int vi = 0; vi < r.Views.Count; vi++)
@@ -234,9 +243,10 @@ namespace SteelKit.Acad
                 }
                 blocked.Add((-1, new[] { px - h, ptop - tableH, px + tw, ptop + 2 * h }));
                 limX1 = px + tw;
-                blocked.Add((-1, new[] { basePt.X + 3 * h, ptop + 4 * h, basePt.X + 5 * h + DimTiers.TextWidth(Summary(r), h * 1.2), ptop + 10 * h }));
+                blocked.Add((-1, new[] { basePt.X + 3 * h, ptop + 4 * h, basePt.X + 5 * h + DimTiers.TextWidth(Summary(r), h), ptop + 10 * h }));
             }
             var used = new List<double[]>();
+            var legs = new List<(Point3d a, Point3d b)>();
             for (int vi = 0; vi < r.Views.Count; vi++)
             {
                 var v = r.Views[vi]; var bx = boxes[vi];
@@ -272,7 +282,7 @@ namespace SteelKit.Acad
                     string key = Math.Round(od.X, 2) + "|" + Math.Round(od.Y, 2);
                     string txt = d.Text ?? Math.Round((b - a).Length).ToString("0", CultureInfo.InvariantCulture);
                     double s0 = Math.Min(Vec2.Dot(a, t), Vec2.Dot(b, t)) * k, s1 = Math.Max(Vec2.Dot(a, t), Vec2.Dot(b, t)) * k;
-                    double dtw = DimTiers.TextWidth(txt, h * 0.8), mid = (s0 + s1) / 2, half = dtw / 2 + h * 0.3;
+                    double dtw = DimTiers.TextWidth(txt, h), mid = (s0 + s1) / 2, half = dtw / 2 + h * 0.3;
                     // angka muat di antara garis ekstensi: hanya rentang angka; tidak muat: rentang dimensi + angka
                     double ta = dtw + h * 0.6 <= s1 - s0 ? mid - half : Math.Min(s0, mid - half), tb = dtw + h * 0.6 <= s1 - s0 ? mid + half : Math.Max(s1, mid + half);
                     dl.Add((a, b, od, d.Offset, d.Text, key, line, ta, tb));
@@ -287,45 +297,66 @@ namespace SteelKit.Acad
                     var dim = new AlignedDimension(P(q.a), P(q.b), P(mid), q.text ?? "", db.Dimstyle);
                     dim.SetDatabaseDefaults(db);
                     dim.Layer = Draw.LayDim;
-                    dim.Dimscale = 1; dim.Dimtxt = h * 0.8; dim.Dimasz = h * 0.7; dim.Dimexo = h * 0.4; dim.Dimexe = h * 0.5; dim.Dimgap = h * 0.25; dim.Dimdec = 0;
+                    dim.Dimscale = 1; dim.Dimtxt = h; dim.Dimasz = h * 0.8; dim.Dimexo = h * 0.4; dim.Dimexe = h * 0.6; dim.Dimgap = h * 0.32; dim.Dimdec = 0;
                     dim.Dimlfac = 1 / k;
                     dim.Dimtad = 1; dim.Dimtih = false; dim.Dimtoh = false; dim.Dimtix = true;
                     space.AppendEntity(dim); tr.AddNewlyCreatedDBObject(dim, true);
                 }
-                // catatan & simbol las: tidak boleh menimpa catatan lain, tampak lain, judul, atau tabel.
-                // Coba geser lutut menjauh (vertikal), lalu sisi sebaliknya; bila tetap bentrok, pakai posisi asal.
-                foreach (var n in r.Notes.Where(n => n.View == vi))
+                // catatan & simbol las: kaki leader miring 45°, landasan mendatar pendek, teks sejajar landasan
+                // (las: landasan = garis referensi + kode las). Panjang kaki dicoba bertingkat; teks tidak boleh menimpa
+                // catatan/tampak lain/judul/tabel, kaki tidak boleh menyilang kaki lain atau melewati teks lain.
+                var own = new[] { x + 4 * h, y0 + 4 * h, x + 4 * h + (bx[2] - bx[0]) * k, y0 + 4 * h + (bx[3] - bx[1]) * k };
+                foreach (var n in r.Notes.Where(n => n.View == vi).OrderByDescending(n => Vec2.Dot(v.P(n.At), new Vec2(0, 1))))
                 {
                     var at = P(v.P(n.At));
                     var weld = WeldMark.Parse(n.Text);
-                    int sx0 = n.Shift.X >= 0 ? 1 : -1, sy = n.Shift.Y >= 0 ? 1 : -1, sx = sx0;
+                    int sx0 = n.Shift.X >= 0 ? 1 : -1, sy0 = n.Shift.Y >= 0 ? 1 : -1, sx = sx0;
                     Point3d tp = at; double[] box = null; bool ok = false;
                     int myVi = vi;
-                    bool Free(double[] bb) => bb[0] >= limX0 && bb[2] <= limX1 && bb[1] >= limY0 && !used.Any(u => bb[0] < u[2] && bb[2] > u[0] && bb[1] < u[3] && bb[3] > u[1])
-                        && !blocked.Any(q => q.vi != myVi && bb[0] < q.r[2] && bb[2] > q.r[0] && bb[1] < q.r[3] && bb[3] > q.r[1]);
-                    foreach (int side in new[] { sx0, -sx0 })
+                    bool Hit(double[] p, double[] q) => p[0] < q[2] && p[2] > q[0] && p[1] < q[3] && p[3] > q[1];
+                    // skor pelanggaran: 0 = bersih. Teks menimpa teks/judul/tabel paling berat; keluar batas lembar juga berat.
+                    int Penalty(double[] bb, Point3d a, Point3d kn)
                     {
-                        for (int tryI = 0; tryI < 14 && !ok; tryI++)
+                        int pen = 0;
+                        if (bb[0] < limX0 || bb[2] > limX1 || bb[1] < limY0) pen += 6;
+                        pen += 10 * used.Count(u => Hit(bb, u));
+                        pen += 10 * blocked.Count(q => q.vi == -1 && Hit(bb, q.r));                  // judul tampak, tabel, kepala
+                        pen += 4 * blocked.Count(q => q.vi >= 0 && q.vi != myVi && Hit(bb, q.r));    // tampak lain
+                        if (Hit(bb, own)) pen += 4;                                                 // gambar tampak sendiri
+                        pen += 5 * legs.Count(g => SegCross(a, kn, g.a, g.b));
+                        pen += 3 * legs.Count(g => SegInBox(g.a, g.b, bb));
+                        pen += 3 * used.Count(u => SegInBox(a, kn, u));
+                        pen += 8 * blocked.Count(q => q.vi == -1 && SegInBox(a, kn, q.r));            // kaki lewat judul/tabel
+                        pen += 3 * blocked.Count(q => q.vi >= 0 && q.vi != myVi && SegInBox(a, kn, q.r));
+                        return pen;
+                    }
+                    int best = int.MaxValue; double bestLen = 0;
+                    foreach (var (side, up) in new[] { (sx0, sy0), (sx0, -sy0), (-sx0, sy0), (-sx0, -sy0) })
+                    {
+                        foreach (double m in new[] { 3.0, 4, 5, 6, 7.5, 9, 11, 13, 16, 19, 23 })
                         {
-                            var cand = new Point3d(at.X + side * Math.Abs(n.Shift.X) * h * 3, at.Y + n.Shift.Y * h * 3 + sy * tryI * 1.8 * h, at.Z);
-                            var cb = weld != null ? WeldExtent(cand, side, weld, h) : NoteExtent(cand, side, sy, n.Text, h);
-                            if (Free(cb)) { tp = cand; box = cb; sx = side; ok = true; }
+                            var kn = new Point3d(at.X + side * m * h, at.Y + up * m * h, at.Z);   // 45°
+                            var cb = weld != null ? WeldExtent(kn, side, weld, h) : LeaderTextExtent(kn, side, n.Text, h);
+                            int pen = Penalty(cb, at, kn);
+                            // posisi bersih pertama dipakai; selain itu simpan yang pelanggarannya paling sedikit (lalu kaki terpendek)
+                            if (pen < best || (pen == best && m < bestLen)) { best = pen; bestLen = m; tp = kn; box = cb; sx = side; }
+                            if (pen == 0) { ok = true; break; }
                         }
                         if (ok) break;
                     }
-                    if (!ok)
-                    {
-                        tp = new Point3d(at.X + n.Shift.X * h * 3, at.Y + n.Shift.Y * h * 3, at.Z); sx = sx0;
-                        box = weld != null ? WeldExtent(tp, sx, weld, h) : NoteExtent(tp, sx, sy, n.Text, h);
-                    }
                     used.Add(box);
+                    legs.Add((at, tp));
                     if (weld != null) { WeldSymbol(tr, space, at, tp, sx, weld, h); continue; }
-                    var ld = new Line(at, tp) { Layer = Draw.LayText };
-                    space.AppendEntity(ld); tr.AddNewlyCreatedDBObject(ld, true);
+                    void Seg(Point3d a, Point3d b) { var ln = new Line(a, b) { Layer = Draw.LayText }; space.AppendEntity(ln); tr.AddNewlyCreatedDBObject(ln, true); }
+                    var u0 = (tp - at); u0 = u0.Length > 1e-9 ? u0.GetNormal() : Vector3d.XAxis;
+                    var nrm = new Vector3d(-u0.Y, u0.X, 0); var bse = at + u0 * h * 0.8;
+                    var arrow = new Solid(at, bse + nrm * h * 0.22, bse - nrm * h * 0.22) { Layer = Draw.LayText };
+                    space.AppendEntity(arrow); tr.AddNewlyCreatedDBObject(arrow, true);
+                    Seg(at, tp); Seg(tp, new Point3d(tp.X + sx * 1.6 * h, tp.Y, tp.Z));
                     var mt = LayoutCommands.Masked(new MText
                     {
-                        Contents = n.Text, Location = tp, TextHeight = h, Layer = Draw.LayText,
-                        Attachment = sx > 0 ? (sy > 0 ? AttachmentPoint.BottomLeft : AttachmentPoint.TopLeft) : (sy > 0 ? AttachmentPoint.BottomRight : AttachmentPoint.TopRight),
+                        Contents = n.Text, Location = new Point3d(tp.X + sx * 2.0 * h, tp.Y, tp.Z), TextHeight = h, Layer = Draw.LayText,
+                        Attachment = sx > 0 ? AttachmentPoint.MiddleLeft : AttachmentPoint.MiddleRight,
                     });
                     space.AppendEntity(mt); tr.AddNewlyCreatedDBObject(mt, true);
                 }
@@ -341,17 +372,18 @@ namespace SteelKit.Acad
             // judul + ringkasan cek + daftar bahan
             var head = new MText
             {
-                Contents = "{\\L DETAIL " + c.Title.ToUpperInvariant() + "}\\P" + Summary(r),
-                Location = new Point3d(basePt.X + 4 * h, top + 5 * h, basePt.Z), TextHeight = h * 1.2, Attachment = AttachmentPoint.BottomLeft, Layer = Draw.LayText,
+                Contents = "{\\H1.4x;\\LDETAIL " + c.Title.ToUpperInvariant() + "}\\P" + Summary(r),
+                Location = new Point3d(basePt.X + 4 * h, top + 5 * h, basePt.Z), TextHeight = h, Attachment = AttachmentPoint.BottomLeft, Layer = Draw.LayText,
             };
             space.AppendEntity(head); tr.AddNewlyCreatedDBObject(head, true);
-            Commands.MakeTable(db, Matrix3d.Identity, new Point3d(x, top, basePt.Z), "DAFTAR BAHAN SAMBUNGAN", rows, h * 0.9 / k, space.ObjectId);
+            Commands.MakeTable(db, Matrix3d.Identity, new Point3d(x, top, basePt.Z), "DAFTAR BAHAN SAMBUNGAN", rows, th / k, space.ObjectId);
             x += tw;
             // batas inti (untuk memilih skala) dan batas termasuk catatan yang menjorok keluar (untuk viewport bila muat)
             double bx0 = basePt.X, by0 = Math.Min(basePt.Y, top - tableH), bx1 = x, by1 = top + 9 * h;
             LastBounds = new[] { bx0, by0, bx1, by1 };
             foreach (var u in used) { bx0 = Math.Min(bx0, u[0] - h); by0 = Math.Min(by0, u[1] - h); bx1 = Math.Max(bx1, u[2] + h); by1 = Math.Max(by1, u[3] + h); }
             LastBoundsAll = new[] { bx0, by0, bx1, by1 };
+            Std.Apply(tr, db, space.Cast<ObjectId>().Where(id => !before.Contains(id)).ToList());
             return x - basePt.X;
         }
 
@@ -366,10 +398,47 @@ namespace SteelKit.Acad
             return new[] { xa, ya, xa + w, ya + ht };
         }
 
+        /// <summary>Kotak landasan + teks leader 45°: landasan 1,6h lalu teks rata kiri/kanan, tengah vertikal di lutut.</summary>
+        static double[] LeaderTextExtent(Point3d kn, int sx, string text, double h)
+        {
+            var ls = Lines(text);
+            double w = ls.Length == 0 ? 0 : ls.Max(l => DimTiers.TextWidth(l, h)), ht = Math.Max(1, ls.Length) * 1.67 * h;
+            double far = kn.X + sx * (2.0 * h + w);
+            return new[] { Math.Min(kn.X, far), kn.Y - ht / 2 - 0.3 * h, Math.Max(kn.X, far), kn.Y + ht / 2 + 0.3 * h };
+        }
+
+        /// <summary>Dua ruas garis 2D saling memotong (bukan hanya bersentuhan di ujung).</summary>
+        static bool SegCross(Point3d a, Point3d b, Point3d c, Point3d d)
+        {
+            double O(Point3d p, Point3d q, Point3d r) => (q.X - p.X) * (r.Y - p.Y) - (q.Y - p.Y) * (r.X - p.X);
+            double d1 = O(c, d, a), d2 = O(c, d, b), d3 = O(a, b, c), d4 = O(a, b, d);
+            return ((d1 > 1e-9 && d2 < -1e-9) || (d1 < -1e-9 && d2 > 1e-9)) && ((d3 > 1e-9 && d4 < -1e-9) || (d3 < -1e-9 && d4 > 1e-9));
+        }
+
+        /// <summary>Ruas garis melewati kotak (ujung di dalam atau memotong sisi).</summary>
+        static bool SegInBox(Point3d a, Point3d b, double[] bx)
+        {
+            bool In(Point3d p) => p.X > bx[0] && p.X < bx[2] && p.Y > bx[1] && p.Y < bx[3];
+            if (In(a) || In(b)) return true;
+            var c = new[] { new Point3d(bx[0], bx[1], 0), new Point3d(bx[2], bx[1], 0), new Point3d(bx[2], bx[3], 0), new Point3d(bx[0], bx[3], 0) };
+            var a2 = new Point3d(a.X, a.Y, 0); var b2 = new Point3d(b.X, b.Y, 0);
+            for (int i = 0; i < 4; i++) if (SegCross(a2, b2, c[i], c[(i + 1) % 4])) return true;
+            return false;
+        }
+
+        /// <summary>Kotak teks catatan di rel: rata kiri (sisi kanan) / rata kanan (sisi kiri), tengah vertikal di titik rel.</summary>
+        static double[] RailExtent(Point3d tp, int sx, string text, double h)
+        {
+            var ls = Lines(text);
+            double w = ls.Length == 0 ? 0 : ls.Max(l => DimTiers.TextWidth(l, h)), ht = Math.Max(1, ls.Length) * 1.67 * h;
+            double xa = sx > 0 ? tp.X - 1.6 * h : tp.X - w, xb = sx > 0 ? tp.X + w : tp.X + 1.6 * h;
+            return new[] { xa, tp.Y - ht / 2 - 0.3 * h, xb, tp.Y + ht / 2 + 0.3 * h };
+        }
+
         static double WeldRefLength(WeldMark w, double h)
         {
-            double sizeW = DimTiers.TextWidth(w.SizeText, h * 0.8);
-            double lenW = w.Length > 0 ? DimTiers.TextWidth(Fmt.N(w.Length), h * 0.8) + h * 0.6 : 0;
+            double sizeW = DimTiers.TextWidth(w.SizeText, h);
+            double lenW = w.Length > 0 ? DimTiers.TextWidth(Fmt.N(w.Length), h) + h * 0.6 : 0;
             return Math.Max(8 * h, sizeW + lenW + 4.5 * h);
         }
 
@@ -377,7 +446,7 @@ namespace SteelKit.Acad
         static double[] WeldExtent(Point3d tp, int sgn, WeldMark w, double h)
         {
             double s = 1.1 * h, lr = WeldRefLength(w, h);
-            double far = lr + (w.Tail.Length > 0 ? 1.3 * h + DimTiers.TextWidth(w.Tail, h * 0.8) : 0);
+            double far = lr + (w.Tail.Length > 0 ? 1.3 * h + DimTiers.TextWidth(w.Tail, h) : 0);
             double y0 = tp.Y - s - 0.3 * h, y1 = tp.Y + (w.BothSides ? s + 0.3 * h : 0.8 * h);
             var ls = Lines(w.Rest);
             if (ls.Length > 0)
@@ -411,8 +480,8 @@ namespace SteelKit.Acad
                 Add(new Line(at, tp));
             }
             string size = w.SizeText;
-            double sizeW = DimTiers.TextWidth(size, h * 0.8);
-            double lenW = w.Length > 0 ? DimTiers.TextWidth(Fmt.N(w.Length), h * 0.8) + h * 0.6 : 0;
+            double sizeW = DimTiers.TextWidth(size, h);
+            double lenW = w.Length > 0 ? DimTiers.TextWidth(Fmt.N(w.Length), h) + h * 0.6 : 0;
             double lr = WeldRefLength(w, h);
             double y = tp.Y, x0 = tp.X, x1 = tp.X + sgn * lr;
             Ln(x0, y, x1, y);
@@ -439,15 +508,15 @@ namespace SteelKit.Acad
                     tri.Closed = true; tri.Elevation = z;
                     Add(tri);
                 }
-                if (size.Length > 0) Tx(size, xs - 0.5 * s - 0.4 * h, y + side * s * 0.5, h * 0.8, AttachmentPoint.MiddleRight);
-                if (w.Length > 0) Tx(Fmt.N(w.Length), xs + 0.5 * s + 0.4 * h, y + side * s * 0.5, h * 0.8, AttachmentPoint.MiddleLeft);
+                if (size.Length > 0) Tx(size, xs - 0.5 * s - 0.4 * h, y + side * s * 0.5, h, AttachmentPoint.MiddleRight);
+                if (w.Length > 0) Tx(Fmt.N(w.Length), xs + 0.5 * s + 0.4 * h, y + side * s * 0.5, h, AttachmentPoint.MiddleLeft);
             }
             if (w.AllAround) Add(new Circle(new Point3d(x0, y, z), Vector3d.ZAxis, h * 0.45));
             if (w.Tail.Length > 0)
             {
                 Ln(x1, y, x1 + sgn * 0.8 * h, y + 0.8 * h);
                 Ln(x1, y, x1 + sgn * 0.8 * h, y - 0.8 * h);
-                Tx(w.Tail, x1 + sgn * 1.3 * h, y, h * 0.8, sgn > 0 ? AttachmentPoint.MiddleLeft : AttachmentPoint.MiddleRight);
+                Tx(w.Tail, x1 + sgn * 1.3 * h, y, h, sgn > 0 ? AttachmentPoint.MiddleLeft : AttachmentPoint.MiddleRight);
             }
             if (w.Rest.Length > 0)
             {

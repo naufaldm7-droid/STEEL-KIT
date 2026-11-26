@@ -45,9 +45,14 @@ namespace SteelKit.Core
         public static void BeamStiffeners(ConnResult r, Profile beam, double x, double zBot, double ts)
         {
             double H = Sec.H(beam), B = Sec.B(beam), tf = Sec.Tf(beam), tw = Sec.Tw(beam);
+            // bidang (y, z), tebal arah x; dua sudut di sisi badan disnipe supaya bebas dari radius sudut profil
+            double c = Math.Max(beam["r"], 0) + 5, zb = zBot + tf, zt = zBot + H - tf;
             foreach (int s in new[] { 1, -1 })
             {
-                var st = r.Box(PartKind.Pengaku, "", x - ts / 2, x + ts / 2, s > 0 ? tw / 2 : -B / 2, s > 0 ? B / 2 : -tw / 2, zBot + tf, zBot + H - tf);
+                double y0 = tw / 2, y1 = B / 2;
+                var pts = new List<Vec2> { new Vec2(y0 + c, zb), new Vec2(y1, zb), new Vec2(y1, zt), new Vec2(y0 + c, zt), new Vec2(y0, zt - c), new Vec2(y0, zb + c) };
+                if (s < 0) pts = pts.Select(q => new Vec2(-q.X, q.Y)).Reverse().ToList();
+                var st = r.Prism(PartKind.Pengaku, "", new Frame(new Vec3(x, 0, 0), Vec3.UnitY, Vec3.UnitZ, Vec3.UnitX), Shapes.Filleted(pts, null), -ts / 2, ts / 2);
                 r.AddBoq("Pelat", "PL " + Fmt.N((B - tw) / 2) + "x" + Fmt.N(H - 2 * tf) + "x" + Fmt.N(ts) + " (pengaku balok)", 1, st.MassKg());
             }
         }
@@ -72,9 +77,13 @@ namespace SteelKit.Core
         [Category("3. Baut"), DisplayName("Gauge melintang (mm)")] public double Gauge { get; set; }
         [Category("3. Baut"), DisplayName("Jarak searah balok (mm)")] public double Pitch { get; set; }
         [Category("4. Pengaku"), DisplayName("Pengaku badan balok di atas sayap kolom")] public bool PengakuBalok { get; set; } = true;
+        [Category("1. Profil"), DisplayName("Kemiringan balok (°)"), Description("0 = balok datar. Balok miring (mis. kanopi T): pelat sejajar sayap bawah balok, puncak kolom dipotong sejajar pelat.")]
+        public double Sudut { get; set; }
         [Category("4. Pengaku"), DisplayName("Tebal pengaku (mm)")] public double TebalPengaku { get; set; }
 
-        double Along(Profile c) => Orientasi == ColumnOrient.TinggiSearahBalok ? c.Extent(false) : c.Extent(true);
+        double Cs => Math.Cos(Sudut * Math.PI / 180);
+        /// <summary>Panjang tapak kolom searah balok, diukur di bidang pelat (miring: dibagi cos sudut).</summary>
+        double Along(Profile c) => (Orientasi == ColumnOrient.TinggiSearahBalok ? c.Extent(false) : c.Extent(true)) / Cs;
         double Across(Profile c) => Orientasi == ColumnOrient.TinggiSearahBalok ? c.Extent(true) : c.Extent(false);
 
         public override void Recommend()
@@ -84,10 +93,11 @@ namespace SteelKit.Core
             TebalPelat = Fmt.StdPlate(Math.Max(12, Math.Max(Sec.Tf(c), 0.75 * b.D)));
             Gauge = Fmt.Round10(Math.Max(Sec.Tw(bm) + b.WasherOD + 20, 0.55 * Sec.B(bm)));
             Gauge = Math.Min(Gauge, Sec.B(bm) - 2 * b.MinEdge);
-            PanjangPelat = Fmt.Round10(Math.Max(Along(c) + 50, 3 * b.D + 2 * e));
-            LebarPelat = Fmt.Round10(Math.Max(Across(c) + 50, Gauge + 2 * e));
-            Pitch = Fmt.Round10(Math.Max(3 * b.D, PanjangPelat - 2 * e));
             Las = Math.Max(6, Fmt.MinFillet(Math.Min(TebalPelat, Sec.Tf(c))));
+            // baut di luar penampang kolom: mur/kepala di bawah pelat tidak boleh duduk di atas sayap kolom atau lasnya
+            Pitch = Fmt.Round10(Math.Max(3 * b.D, Along(c) + b.Across + 2 * Las + 10));
+            PanjangPelat = Fmt.Round10(Math.Max(Along(c) + 50, Pitch + 2 * e));
+            LebarPelat = Fmt.Round10(Math.Max(Across(c) + 50, Gauge + 2 * e));
             TebalPengaku = Fmt.StdPlate(Math.Max(10, Sec.Tf(c)));
         }
 
@@ -112,10 +122,23 @@ namespace SteelKit.Core
                 foreach (var x in new[] { -Along(c) / 2 + Sec.Tf(c) / 2, Along(c) / 2 - Sec.Tf(c) / 2 })
                     Shear.BeamStiffeners(r, bm, x, 0, TebalPengaku);
             bool along = Orientasi == ColumnOrient.TinggiSearahBalok;
-            Stub(r, c, along ? new Frame(new Vec3(0, 0, -tp - 2 * Sec.H(c)), -Vec3.UnitY, Vec3.UnitX, Vec3.UnitZ) : new Frame(new Vec3(0, 0, -tp - 2 * Sec.H(c)), Vec3.UnitX, Vec3.UnitY, Vec3.UnitZ), 0, 2 * Sec.H(c));
+            // kolom tegak dunia; di frame sambungan (X searah balok, Z tegak lurus sayap bawah) arahnya miring bila balok miring
+            double a = Sudut * Math.PI / 180;
+            var up = new Vec3(Math.Sin(a), 0, Math.Cos(a));          // arah atas dunia di frame lokal
+            var hz = new Vec3(Math.Cos(a), 0, -Math.Sin(a));          // mendatar searah balok di frame lokal
+            var axisAtPlate = up * (-tp / Math.Cos(a));               // as kolom di muka bawah pelat
+            double sl = 2 * Sec.H(c);
+            var stub = Stub2(r, c, along ? new Frame(axisAtPlate - up * sl, -Vec3.UnitY, hz, up) : new Frame(axisAtPlate - up * sl, hz, Vec3.UnitY, up), sl + 2 * Sec.H(c));
+            stub.Clip(new Vec3(0, 0, -tp), -Vec3.UnitZ);              // rintisan kolom rata di bawah pelat
             double L = Math.Max(2 * Hb, 800);
             Stub(r, bm, new Frame(new Vec3(-L, 0, Hb / 2), Vec3.UnitY, Vec3.UnitZ, Vec3.UnitX), 0, 2 * L);
-            r.TrimSupported = new Vec3(0, 0, -tp);
+            if (Math.Abs(Sudut) < 0.01) r.TrimSupported = new Vec3(0, 0, -tp);
+            else
+            {
+                // puncak kolom dipotong sejajar pelat miring (rapat, tidak menembus)
+                r.CutSupported.Add(FlushEnd(c, axisAtPlate, up * -1, Vec3.UnitZ * -1, out Vec3 trim, out double _));
+                r.TrimSupported = trim;
+            }
 
             EdgeRule(r, "Baut ke tepi pelat (searah balok)", Lp / 2 - Pitch / 2, b);
             EdgeRule(r, "Baut ke tepi pelat (melintang)", Wp / 2 - Gauge / 2, b);
@@ -123,6 +146,8 @@ namespace SteelKit.Core
             PitchRule(r, "Baut", Math.Min(Pitch, Gauge), b);
             r.Rule(Gauge >= Sec.Tw(bm) + b.WasherOD - 1e-6, "Gauge cukup untuk badan balok + ring", "ruang kunci, praktik umum");
             r.Rule(Lp >= Along(c) - 1e-6 && Wp >= Across(c) - 1e-6, "Pelat menutup penampang kolom", "geometri");
+            double outside = Pitch / 2 - b.Across / 2 - (Along(c) / 2 + Las);
+            r.Rule(outside >= 5 - 1e-6, "Mur baut di luar kolom + las (" + Fmt.N(outside) + " ≥ 5 mm)", "ruang kunci, praktik umum");
             WeldRule(r, "Kolom ke pelat tutup", Las, Sec.Tf(c), tp);
 
             r.Views.Add(new ViewSpec("TAMPAK SAMPING", Vec3.UnitX, Vec3.UnitZ));

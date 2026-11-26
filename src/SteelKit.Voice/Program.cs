@@ -30,8 +30,11 @@ namespace SteelKit.Voice
         public const long ModelBytes = 190085487;
 
         // kosakata membantu Whisper mengenali istilah baja
+        // contoh kalimat + istilah teknik yang sering dipakai engineer & drafter: membuat Whisper mengeja istilah ini dengan benar
         const string Prompt = "Portal bentang 20 meter tinggi 6 meter miring 10 derajat, 5 bay jarak 6 meter. Kolom WF400, rafter WF350, " +
-                              "gording C150 jarak 1,2 meter, bracing RD16, balok anak WF200, mezanin, kolom H300, pipa, siku L50, hollow.";
+                              "gording C150 jarak 1,2 meter, bracing RD16, balok anak WF200, mezanin, kolom H300, pipa, siku L50, hollow. " +
+                              "Kanopi kantilever, carport, menara, tower air, jembatan rangka, truss, gelagar, frame, haunch, apex, " +
+                              "base plate, pelat buhul, pengaku, stiffener, turnbuckle, sag rod, girt, purlin.";
 
         public static string ModelDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SteelKit", "suara");
         public static string ModelPath => Path.Combine(ModelDir, ModelName);
