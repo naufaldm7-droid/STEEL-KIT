@@ -73,8 +73,16 @@ namespace SteelKit.Core
             if (Metode == RodEnd.RingMiring)
             {
                 var pb = uR * (-(tw / 2) / sinp);                 // titik as rod di muka belakang badan
-                double hw = Fmt.Round5(Math.Max(0.9 * d, 12));
-                r.Cylinder(PartKind.Ring, "ring miring", pb - uR * hw, uR, 1.25 * d, hw);
+                // tebal ring miring: cukup supaya ring datar & mur (tegak lurus rod) tidak menyentuh badan pada sudut landai
+                double rOut = Math.Max(b.WasherOD / 2, b.Across / Math.Sqrt(3));
+                double hw = Fmt.Round5(Math.Max(Math.Max(0.9 * d, 12), rOut * Math.Cos(phi) / sinp + 2));
+                // ring miring: muka miringnya rata dengan muka belakang badan (dipotong bidang badan), tidak menembus
+                double reach = 1.25 * d * Math.Cos(phi) / sinp + 1;
+                r.Cylinder(PartKind.Ring, "ring miring", pb - uR * hw, uR, 1.25 * d, hw + reach).Clip(new Vec3(0, 0, -tw / 2), -Vec3.UnitZ);
+                // lubang lonjong di badan host: silinder searah rod menembus badan (bentuknya lonjong karena miring)
+                // tutup silinder tegak lurus rod, bukan sejajar badan: diperpanjang R·cot(φ) di kedua sisi supaya tembus penuh
+                double rh = (d + 3) / 2, ext = 2 + rh * Math.Cos(phi) / sinp;
+                r.CutSupport.Add(Cutter.Cyl(ConnResult.AxisFrame(pb - uR * ext, uR), rh, 0, tw / sinp + 2 * ext));
                 r.Cylinder(PartKind.Ring, "", pb - uR * (hw + b.WasherT), uR, b.WasherOD / 2, b.WasherT);
                 for (int i = 0; i < nNuts; i++) r.Hex(PartKind.Mur, "", pb - uR * (hw + b.WasherT + (i + 1) * b.Nut), uR, b.Across, b.Nut);
                 end = pb - uR * (hw + b.WasherT + nNuts * b.Nut + 3 * b.Pitch);

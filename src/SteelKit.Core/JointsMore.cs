@@ -184,7 +184,8 @@ namespace SteelKit.Core
                     var u = mr.Dir;
                     var helper = Math.Abs(u.Z) < 0.9 ? Vec3.UnitZ : Vec3.UnitX;
                     var y = helper.Cross(u).Unit;
-                    res.Add(new Joint { Type = ConnType.Turnbuckle, Support = r, SupportKey = "M", Frame = new Frame(mr.At(0.5), u, y, u.Cross(y)), Conn = tb });
+                    // di 0,3 panjang dari ujung awal: tidak di titik silang bracing X (dua turnbuckle tidak bertumpuk) dan mudah dijangkau
+                    res.Add(new Joint { Type = ConnType.Turnbuckle, Support = r, SupportKey = "M", Frame = new Frame(mr.At(0.3), u, y, u.Cross(y)), Conn = tb });
                 }
             }
             return res;

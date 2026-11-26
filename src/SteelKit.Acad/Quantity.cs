@@ -6,6 +6,7 @@ using System.Linq;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using SteelKit.Core;
 using AcCore = Autodesk.AutoCAD.ApplicationServices.Core.Application;
@@ -50,6 +51,7 @@ namespace SteelKit.Acad
                         Category = !string.IsNullOrEmpty(t.Spec?.Category) ? t.Spec.Category : cl.category,
                         Level = !string.IsNullOrEmpty(t.Spec?.Level) ? t.Spec.Level : lv.Of(Math.Min(s.Z, en.Z)),
                         Mark = t.Spec?.Mark ?? "",
+                        Signature = t.Spec != null && t.Spec.Cuts.Count > 0 ? Signature(t.Spec, p, k) : "",
                     };
                     list.Add(it);
                 }
@@ -62,6 +64,23 @@ namespace SteelKit.Acad
                 }
             }
             return list;
+        }
+
+        /// <summary>Pola lubang/potongan batang dalam koordinat lokalnya (lihat PartSignature).</summary>
+        static string Signature(Draw.MemberSpec m, Profile p, double k)
+        {
+            try
+            {
+                Draw.MemberAxes(m.E - m.S, m.Roll, out Vector3d x, out Vector3d y, out Vector3d z);
+                Vec3 L(Vector3d v) => new Vec3(v.DotProduct(x), v.DotProduct(y), v.DotProduct(z));
+                var local = m.Cuts.Select(c => new Cutter
+                {
+                    Cylinder = c.Cylinder, Radius = c.Radius / k, X0 = c.X0 / k, X1 = c.X1 / k, Y0 = c.Y0 / k, Y1 = c.Y1 / k, Z0 = c.Z0 / k, Z1 = c.Z1 / k,
+                    F = new Frame(L(Draw.P(c.F.O) - m.S) * (1 / k), L(Draw.D(c.F.U)), L(Draw.D(c.F.V)), L(Draw.D(c.F.W))),
+                });
+                return PartSignature.Of(p, m.Anchor, m.S.DistanceTo(m.E) / k, local);
+            }
+            catch { return ""; }
         }
 
         public static TakeoffConnection ToTakeoff(Item it)
@@ -87,6 +106,7 @@ namespace SteelKit.Acad
             var ps = ed.GetString(new PromptStringOptions("\nNama proyek <" + defName + ">") { AllowSpaces = true });
             if (ps.Status != PromptStatus.OK && ps.Status != PromptStatus.None) return;
             string project = string.IsNullOrWhiteSpace(ps.StringResult) ? defName : ps.StringResult.Trim();
+            Store.Set("proyek", project);   // dipakai kotak judul SKLAYOUT
             var pd = ed.GetDouble(new PromptDoubleOptions("\nAllowance potong / sisa (%)") { DefaultValue = Store.Allowance, UseDefaultValue = true, AllowNegative = false });
             if (pd.Status != PromptStatus.OK) return;
             Store.Allowance = pd.Value;

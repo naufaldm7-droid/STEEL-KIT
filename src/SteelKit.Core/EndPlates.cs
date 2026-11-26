@@ -114,7 +114,7 @@ namespace SteelKit.Core
                     foreach (int s in new[] { 1, -1 })
                     {
                         double y0 = s > 0 ? twc / 2 : -Bc / 2, y1 = s > 0 ? Bc / 2 : -twc / 2;
-                        var st = r.Box(PartKind.Pengaku, "", -Hc / 2 + tfc, Hc / 2 - tfc, y0, y1, zl - ts / 2, zl + ts / 2);
+                        var st = r.SnipedStiffener(-Hc / 2 + tfc, Hc / 2 - tfc, y0, y1, zl - ts / 2, zl + ts / 2, s > 0, Sec.R(col) + 5);
                         r.AddBoq("Pelat", Pl(Hc - 2 * tfc, (Bc - twc) / 2, ts) + " (pengaku kolom)", 1, st.MassKg());
                     }
             }
@@ -364,7 +364,7 @@ namespace SteelKit.Core
                     foreach (int s in new[] { 1, -1 })
                     {
                         double y0 = s > 0 ? twc / 2 : -Bc / 2, y1 = s > 0 ? Bc / 2 : -twc / 2;
-                        var st = r.Box(PartKind.Pengaku, "", -Hc / 2 + tfc, Hc / 2 - tfc, y0, y1, zl - ts / 2, zl + ts / 2);
+                        var st = r.SnipedStiffener(-Hc / 2 + tfc, Hc / 2 - tfc, y0, y1, zl - ts / 2, zl + ts / 2, s > 0, Sec.R(col) + 5);
                         r.AddBoq("Pelat", Pl(Hc - 2 * tfc, (Bc - twc) / 2, ts) + " (pengaku kolom)", 1, st.MassKg());
                     }
             }
@@ -401,6 +401,7 @@ namespace SteelKit.Core
             r.Dim(0, new Vec3(x1, 0, zHaunchFace), new Vec3(x1, 0, zBot(x1)), Vec3.UnitX, -off, null);
             r.Note(0, new Vec3(x1 + Lh / 2, 0, (zBot(x1 + Lh / 2) + zHaunchFace) / 2), "Badan haunch t=" + Fmt.N(TebalBadanHaunch) + "\\PSayap haunch " + Fmt.N(Br) + "x" + Fmt.N(tfr), 2, -3);
             r.Note(0, new Vec3(x1, 0, plateTop), lab + ", " + nb + " baut " + Baut + " " + Grades.Label(Mutu), 2, 2);
+            r.Note(0, new Vec3(x1, 0, (plateTop + plateBot) / 2), "Las sayap a=" + Fmt.N(LasSayap) + ", badan a=" + Fmt.N(LasBadan), 3, -1);
             var chain = new List<double> { plateTop }; chain.AddRange(rows.OrderByDescending(z => z)); chain.Add(plateBot);
             for (int i = 1; i < chain.Count; i++) r.Dim(1, new Vec3(x1, LebarPelat / 2, chain[i]), new Vec3(x1, LebarPelat / 2, chain[i - 1]), Vec3.UnitY, off);
             r.Dim(1, new Vec3(x1, -Gauge / 2, plateBot), new Vec3(x1, Gauge / 2, plateBot), -Vec3.UnitZ, off);

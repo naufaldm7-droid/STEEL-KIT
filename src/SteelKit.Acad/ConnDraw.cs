@@ -189,6 +189,8 @@ namespace SteelKit.Acad
         /// <summary>Gambar detail 2D di bidang XY dunia mulai dari titik dasar (kiri bawah). Mengembalikan lebar yang dipakai.</summary>
         /// <summary>Batas gambar detail terakhir (x0, y0, x1, y1) untuk viewport lembar detail.</summary>
         public static double[] LastBounds;
+        /// <summary>Batas termasuk catatan yang menjorok keluar (untuk ukuran viewport bila muat).</summary>
+        public static double[] LastBoundsAll;
 
         public static double Detail(Transaction tr, Database db, BlockTableRecord space, Connection c, Point3d basePt, double textHeight = 0)
         {
@@ -210,6 +212,31 @@ namespace SteelKit.Acad
             }
             double gap = 12 * h;
             double y0 = basePt.Y + 8 * h;           // ruang judul tampak di bawah
+            var rows = new List<string[]> { new[] { "Bahan", "Uraian", "Jml", "kg" } };
+            foreach (var b in r.Boq) rows.Add(new[] { b.Item, b.Spec, b.Count.ToString(CultureInfo.CurrentCulture), b.TotalKg > 0 ? Draw.N(b.TotalKg, "0.0") : "-" });
+            rows.Add(new[] { "TOTAL", "baja (tanpa grout/beton)", "", Draw.N(r.Boq.Sum(b => b.TotalKg), "0.0") });
+            double tw = Enumerable.Range(0, 4).Sum(ci => Math.Max(4, rows.Max(rw => rw[ci].Length)) * h * 0.9 * 0.85 + h * 0.9 * 1.6);
+            double tableH = (rows.Count + 2) * h * 0.9 * 2.0;
+            // area terlarang untuk catatan: gambar tampak lain (+ ruang dimensi), judul tampak, tabel bahan
+            var blocked = new List<(int vi, double[] r)>();
+            double limX0 = basePt.X, limX1 = basePt.X, limY0 = basePt.Y - 6 * h;
+            {
+                double px = x, ptop = top;
+                for (int vi = 0; vi < r.Views.Count; vi++)
+                {
+                    var bb = boxes[vi];
+                    double w = (bb[2] - bb[0]) * k, ht = (bb[3] - bb[1]) * k, gx = px + 4 * h, gy = y0 + 4 * h;
+                    blocked.Add((vi, new[] { gx - 3 * h, gy - 3 * h, gx + w + 3 * h, gy + ht + 3 * h }));
+                    double tcx = gx + w / 2, ttw = DimTiers.TextWidth(r.Views[vi].Title, h * 1.4) / 2 + h;
+                    blocked.Add((-1, new[] { tcx - ttw, y0 - 2 * h, tcx + ttw, y0 + 0.3 * h }));
+                    px += w + gap + 8 * h;
+                    ptop = Math.Max(ptop, gy + ht);
+                }
+                blocked.Add((-1, new[] { px - h, ptop - tableH, px + tw, ptop + 2 * h }));
+                limX1 = px + tw;
+                blocked.Add((-1, new[] { basePt.X + 3 * h, ptop + 4 * h, basePt.X + 5 * h + DimTiers.TextWidth(Summary(r), h * 1.2), ptop + 10 * h }));
+            }
+            var used = new List<double[]>();
             for (int vi = 0; vi < r.Views.Count; vi++)
             {
                 var v = r.Views[vi]; var bx = boxes[vi];
@@ -232,38 +259,74 @@ namespace SteelKit.Acad
                     space.AppendEntity(e); tr.AddNewlyCreatedDBObject(e, true);
                     if (s.Kind == PartKind.Beton && !s.IsCircle) HatchIt(tr, space, (Polyline)e, "AR-CONC", h * 0.02);
                 }
-                var chainCount = new Dictionary<string, int>();
+                // dimensi: angka yang bertumpuk dengan dimensi lain di garis yang (hampir) sama digeser ke lapis luar
+                var dl = new List<(Vec2 a, Vec2 b, Vec2 od, double off, string text, string key, double line, double ta, double tb)>();
                 foreach (var d in r.Dims.Where(d => d.View == vi))
                 {
                     var a = v.P(d.A); var b = v.P(d.B);
                     var od = new Vec2(d.OffsetDir.Dot(v.R), d.OffsetDir.Dot(v.Up));
                     if (od.Length < 1e-6 || (b - a).Length < 1e-6) continue;
                     od = od.Unit;
-                    // dimensi berantai yang pendek: selang-seling jaraknya supaya angka tidak bertumpuk
-                    string ck = Math.Round(od.X, 2) + "|" + Math.Round(od.Y, 2) + "|" + Math.Round(d.Offset) + "|" + Math.Round((a + b).X * 0.5 * Math.Abs(od.X)) + "|" + Math.Round((a + b).Y * 0.5 * Math.Abs(od.Y));
-                    chainCount.TryGetValue(ck, out int ci);
-                    chainCount[ck] = ci + 1;
-                    double extra = (b - a).Length * k < 3.5 * h && ci % 2 == 1 ? 2.2 * h / k : 0;
-                    var mid = (a + b) * 0.5 + od * (d.Offset + extra);
-                    var dim = new AlignedDimension(P(a), P(b), P(mid), d.Text ?? "", db.Dimstyle);
+                    var t = new Vec2(-od.Y, od.X);
+                    double line = (Vec2.Dot((a + b) * 0.5, od) + d.Offset) * k;
+                    string key = Math.Round(od.X, 2) + "|" + Math.Round(od.Y, 2);
+                    string txt = d.Text ?? Math.Round((b - a).Length).ToString("0", CultureInfo.InvariantCulture);
+                    double s0 = Math.Min(Vec2.Dot(a, t), Vec2.Dot(b, t)) * k, s1 = Math.Max(Vec2.Dot(a, t), Vec2.Dot(b, t)) * k;
+                    double dtw = DimTiers.TextWidth(txt, h * 0.8), mid = (s0 + s1) / 2, half = dtw / 2 + h * 0.3;
+                    // angka muat di antara garis ekstensi: hanya rentang angka; tidak muat: rentang dimensi + angka
+                    double ta = dtw + h * 0.6 <= s1 - s0 ? mid - half : Math.Min(s0, mid - half), tb = dtw + h * 0.6 <= s1 - s0 ? mid + half : Math.Max(s1, mid + half);
+                    dl.Add((a, b, od, d.Offset, d.Text, key, line, ta, tb));
+                }
+                var placedDims = new List<(string key, double line, double ta, double tb)>();
+                foreach (var q in dl.OrderBy(q => q.key).ThenBy(q => q.line).ThenBy(q => q.ta))
+                {
+                    int tier = 0;
+                    while (tier < 8 && placedDims.Any(p => p.key == q.key && Math.Abs(p.line - (q.line + tier * 2.0 * h)) < 1.3 * h && q.ta < p.tb && q.tb > p.ta)) tier++;
+                    placedDims.Add((q.key, q.line + tier * 2.0 * h, q.ta, q.tb));
+                    var mid = (q.a + q.b) * 0.5 + q.od * (q.off + tier * 2.0 * h / k);
+                    var dim = new AlignedDimension(P(q.a), P(q.b), P(mid), q.text ?? "", db.Dimstyle);
                     dim.SetDatabaseDefaults(db);
                     dim.Layer = Draw.LayDim;
                     dim.Dimscale = 1; dim.Dimtxt = h * 0.8; dim.Dimasz = h * 0.7; dim.Dimexo = h * 0.4; dim.Dimexe = h * 0.5; dim.Dimgap = h * 0.25; dim.Dimdec = 0;
                     dim.Dimlfac = 1 / k;
-                    dim.Dimtad = 1; dim.Dimtih = false; dim.Dimtoh = false;
+                    dim.Dimtad = 1; dim.Dimtih = false; dim.Dimtoh = false; dim.Dimtix = true;
                     space.AppendEntity(dim); tr.AddNewlyCreatedDBObject(dim, true);
                 }
+                // catatan & simbol las: tidak boleh menimpa catatan lain, tampak lain, judul, atau tabel.
+                // Coba geser lutut menjauh (vertikal), lalu sisi sebaliknya; bila tetap bentrok, pakai posisi asal.
                 foreach (var n in r.Notes.Where(n => n.View == vi))
                 {
                     var at = P(v.P(n.At));
-                    var tp = new Point3d(at.X + n.Shift.X * h * 3, at.Y + n.Shift.Y * h * 3, at.Z);
+                    var weld = WeldMark.Parse(n.Text);
+                    int sx0 = n.Shift.X >= 0 ? 1 : -1, sy = n.Shift.Y >= 0 ? 1 : -1, sx = sx0;
+                    Point3d tp = at; double[] box = null; bool ok = false;
+                    int myVi = vi;
+                    bool Free(double[] bb) => bb[0] >= limX0 && bb[2] <= limX1 && bb[1] >= limY0 && !used.Any(u => bb[0] < u[2] && bb[2] > u[0] && bb[1] < u[3] && bb[3] > u[1])
+                        && !blocked.Any(q => q.vi != myVi && bb[0] < q.r[2] && bb[2] > q.r[0] && bb[1] < q.r[3] && bb[3] > q.r[1]);
+                    foreach (int side in new[] { sx0, -sx0 })
+                    {
+                        for (int tryI = 0; tryI < 14 && !ok; tryI++)
+                        {
+                            var cand = new Point3d(at.X + side * Math.Abs(n.Shift.X) * h * 3, at.Y + n.Shift.Y * h * 3 + sy * tryI * 1.8 * h, at.Z);
+                            var cb = weld != null ? WeldExtent(cand, side, weld, h) : NoteExtent(cand, side, sy, n.Text, h);
+                            if (Free(cb)) { tp = cand; box = cb; sx = side; ok = true; }
+                        }
+                        if (ok) break;
+                    }
+                    if (!ok)
+                    {
+                        tp = new Point3d(at.X + n.Shift.X * h * 3, at.Y + n.Shift.Y * h * 3, at.Z); sx = sx0;
+                        box = weld != null ? WeldExtent(tp, sx, weld, h) : NoteExtent(tp, sx, sy, n.Text, h);
+                    }
+                    used.Add(box);
+                    if (weld != null) { WeldSymbol(tr, space, at, tp, sx, weld, h); continue; }
                     var ld = new Line(at, tp) { Layer = Draw.LayText };
                     space.AppendEntity(ld); tr.AddNewlyCreatedDBObject(ld, true);
-                    var mt = new MText
+                    var mt = LayoutCommands.Masked(new MText
                     {
                         Contents = n.Text, Location = tp, TextHeight = h, Layer = Draw.LayText,
-                        Attachment = n.Shift.X >= 0 ? (n.Shift.Y >= 0 ? AttachmentPoint.BottomLeft : AttachmentPoint.TopLeft) : (n.Shift.Y >= 0 ? AttachmentPoint.BottomRight : AttachmentPoint.TopRight),
-                    };
+                        Attachment = sx > 0 ? (sy > 0 ? AttachmentPoint.BottomLeft : AttachmentPoint.TopLeft) : (sy > 0 ? AttachmentPoint.BottomRight : AttachmentPoint.TopRight),
+                    });
                     space.AppendEntity(mt); tr.AddNewlyCreatedDBObject(mt, true);
                 }
                 var title = new MText
@@ -282,14 +345,116 @@ namespace SteelKit.Acad
                 Location = new Point3d(basePt.X + 4 * h, top + 5 * h, basePt.Z), TextHeight = h * 1.2, Attachment = AttachmentPoint.BottomLeft, Layer = Draw.LayText,
             };
             space.AppendEntity(head); tr.AddNewlyCreatedDBObject(head, true);
-            var rows = new List<string[]> { new[] { "Bahan", "Uraian", "Jml", "kg" } };
-            foreach (var b in r.Boq) rows.Add(new[] { b.Item, b.Spec, b.Count.ToString(CultureInfo.CurrentCulture), b.TotalKg > 0 ? Draw.N(b.TotalKg, "0.0") : "-" });
-            rows.Add(new[] { "TOTAL", "baja (tanpa grout/beton)", "", Draw.N(r.Boq.Sum(b => b.TotalKg), "0.0") });
             Commands.MakeTable(db, Matrix3d.Identity, new Point3d(x, top, basePt.Z), "DAFTAR BAHAN SAMBUNGAN", rows, h * 0.9 / k, space.ObjectId);
-            double tw = Enumerable.Range(0, 4).Sum(ci => Math.Max(4, rows.Max(rw => rw[ci].Length)) * h * 0.9 * 0.85 + h * 0.9 * 1.6);
             x += tw;
-            LastBounds = new[] { basePt.X, Math.Min(basePt.Y, top - (rows.Count + 2) * h * 0.9 * 2.0), x, top + 9 * h };
+            // batas inti (untuk memilih skala) dan batas termasuk catatan yang menjorok keluar (untuk viewport bila muat)
+            double bx0 = basePt.X, by0 = Math.Min(basePt.Y, top - tableH), bx1 = x, by1 = top + 9 * h;
+            LastBounds = new[] { bx0, by0, bx1, by1 };
+            foreach (var u in used) { bx0 = Math.Min(bx0, u[0] - h); by0 = Math.Min(by0, u[1] - h); bx1 = Math.Max(bx1, u[2] + h); by1 = Math.Max(by1, u[3] + h); }
+            LastBoundsAll = new[] { bx0, by0, bx1, by1 };
             return x - basePt.X;
+        }
+
+        static string[] Lines(string t) => string.IsNullOrEmpty(t) ? new string[0] : t.Split(new[] { "\\P" }, StringSplitOptions.None);
+
+        /// <summary>Kotak perkiraan teks catatan biasa (untuk cek tumpang tindih).</summary>
+        static double[] NoteExtent(Point3d tp, int sx, int sy, string text, double h)
+        {
+            var ls = Lines(text);
+            double w = ls.Length == 0 ? 0 : ls.Max(l => DimTiers.TextWidth(l, h)), ht = Math.Max(1, ls.Length) * 1.67 * h;
+            double xa = sx > 0 ? tp.X : tp.X - w, ya = sy > 0 ? tp.Y : tp.Y - ht;
+            return new[] { xa, ya, xa + w, ya + ht };
+        }
+
+        static double WeldRefLength(WeldMark w, double h)
+        {
+            double sizeW = DimTiers.TextWidth(w.SizeText, h * 0.8);
+            double lenW = w.Length > 0 ? DimTiers.TextWidth(Fmt.N(w.Length), h * 0.8) + h * 0.6 : 0;
+            return Math.Max(8 * h, sizeW + lenW + 4.5 * h);
+        }
+
+        /// <summary>Kotak perkiraan simbol las + ekor + sisa catatan.</summary>
+        static double[] WeldExtent(Point3d tp, int sgn, WeldMark w, double h)
+        {
+            double s = 1.1 * h, lr = WeldRefLength(w, h);
+            double far = lr + (w.Tail.Length > 0 ? 1.3 * h + DimTiers.TextWidth(w.Tail, h * 0.8) : 0);
+            double y0 = tp.Y - s - 0.3 * h, y1 = tp.Y + (w.BothSides ? s + 0.3 * h : 0.8 * h);
+            var ls = Lines(w.Rest);
+            if (ls.Length > 0)
+            {
+                double rw = ls.Max(l => DimTiers.TextWidth(l, h)) + 0.3 * h, rh = ls.Length * 1.67 * h;
+                far = Math.Max(far, rw);
+                if (w.BothSides) y0 = tp.Y - s - 0.6 * h - rh; else y1 = tp.Y + 0.7 * h + rh;
+            }
+            double x1 = tp.X + sgn * far;
+            return new[] { Math.Min(tp.X, x1), y0, Math.Max(tp.X, x1), y1 };
+        }
+
+        /// <summary>
+        /// Simbol las praktik ISO 2553 sistem B (simbol di bawah garis referensi = sisi panah): panah, garis referensi,
+        /// segitiga las sudut / alur miring CJP, ukuran leher "a", lingkaran keliling, ekor berisi keterangan.
+        /// Sisa catatan (bukan las) ditulis di atas garis referensi.
+        /// </summary>
+        static void WeldSymbol(Transaction tr, BlockTableRecord space, Point3d at, Point3d tp, int sgn, WeldMark w, double h)
+        {
+            double z = at.Z;
+            void Add(Entity e) { e.Layer = Draw.LayText; space.AppendEntity(e); tr.AddNewlyCreatedDBObject(e, true); }
+            void Ln(double x0, double y0, double x1, double y1) => Add(new Line(new Point3d(x0, y0, z), new Point3d(x1, y1, z)));
+            void Tx(string s, double x0, double y0, double th, AttachmentPoint ap) => Add(LayoutCommands.Masked(new MText { Contents = s, Location = new Point3d(x0, y0, z), TextHeight = th, Attachment = ap }));
+            // panah (segitiga penuh) dan garis panah
+            var dir = tp - at; double len = dir.Length;
+            if (len > 1e-9)
+            {
+                var u = dir / len; var nrm = new Vector3d(-u.Y, u.X, 0);
+                var tip = at; var bse = at + u * h * 0.9;
+                Add(new Solid(tip, bse + nrm * h * 0.25, bse - nrm * h * 0.25));
+                Add(new Line(at, tp));
+            }
+            string size = w.SizeText;
+            double sizeW = DimTiers.TextWidth(size, h * 0.8);
+            double lenW = w.Length > 0 ? DimTiers.TextWidth(Fmt.N(w.Length), h * 0.8) + h * 0.6 : 0;
+            double lr = WeldRefLength(w, h);
+            double y = tp.Y, x0 = tp.X, x1 = tp.X + sgn * lr;
+            Ln(x0, y, x1, y);
+            // posisi simbol: setelah teks ukuran, dihitung dari sisi panah
+            // ukuran selalu di kiri simbol dan panjang di kanannya, jadi jarak dari sisi panah tergantung arah garis
+            double xs = x0 + sgn * (1.2 * h + (sgn > 0 ? sizeW : lenW) + 0.9 * h);
+            double s = h * 1.1;
+            for (int side = -1; side <= (w.BothSides ? 1 : -1); side += 2)
+            {
+                double yy = y + side * s;
+                if (w.Cjp)
+                {
+                    // alur miring (bevel): kaki tegak kiri + kaki miring melebar menjauh dari garis
+                    Ln(xs - 0.5 * s, y, xs - 0.5 * s, yy);
+                    Ln(xs - 0.5 * s, y, xs + 0.5 * s, yy);
+                }
+                else
+                {
+                    // las sudut: segitiga dengan kaki tegak di kiri (aturan gambar, tidak dicerminkan)
+                    var tri = new Polyline();
+                    tri.AddVertexAt(0, new Point2d(xs - 0.5 * s, y), 0, 0, 0);
+                    tri.AddVertexAt(1, new Point2d(xs - 0.5 * s, yy), 0, 0, 0);
+                    tri.AddVertexAt(2, new Point2d(xs + 0.5 * s, y), 0, 0, 0);
+                    tri.Closed = true; tri.Elevation = z;
+                    Add(tri);
+                }
+                if (size.Length > 0) Tx(size, xs - 0.5 * s - 0.4 * h, y + side * s * 0.5, h * 0.8, AttachmentPoint.MiddleRight);
+                if (w.Length > 0) Tx(Fmt.N(w.Length), xs + 0.5 * s + 0.4 * h, y + side * s * 0.5, h * 0.8, AttachmentPoint.MiddleLeft);
+            }
+            if (w.AllAround) Add(new Circle(new Point3d(x0, y, z), Vector3d.ZAxis, h * 0.45));
+            if (w.Tail.Length > 0)
+            {
+                Ln(x1, y, x1 + sgn * 0.8 * h, y + 0.8 * h);
+                Ln(x1, y, x1 + sgn * 0.8 * h, y - 0.8 * h);
+                Tx(w.Tail, x1 + sgn * 1.3 * h, y, h * 0.8, sgn > 0 ? AttachmentPoint.MiddleLeft : AttachmentPoint.MiddleRight);
+            }
+            if (w.Rest.Length > 0)
+            {
+                // di atas garis bila sisi atas kosong; bila las dua sisi, catatan di bawah simbol
+                double ry = w.BothSides ? y - s - 0.6 * h : y + (w.AllAround ? 0.7 * h : 0.5 * h);
+                Tx(w.Rest, x0 + sgn * 0.3 * h, ry, h, w.BothSides ? (sgn > 0 ? AttachmentPoint.TopLeft : AttachmentPoint.TopRight) : (sgn > 0 ? AttachmentPoint.BottomLeft : AttachmentPoint.BottomRight));
+            }
         }
 
         public static string Summary(ConnResult r)

@@ -183,6 +183,11 @@ namespace SteelKit.Core
         public Dictionary<int, Vec3> TrimMembers = new Dictionary<int, Vec3>();
         /// <summary>Geser seluruh batang (kedua ujung) sejajar, mis. supaya punggung kaki menempel pelat buhul. Indeks seperti TrimMembers.</summary>
         public Dictionary<int, Vec3> ShiftMembers = new Dictionary<int, Vec3>();
+        /// <summary>
+        /// Lubang baut (silinder diameter lubang sepanjang jepitan) untuk dibor ke semua batang yang disambung.
+        /// Silinder hanya memotong batang yang memang dilalui baut, jadi aman diterapkan ke setiap batang sambungan.
+        /// </summary>
+        public List<Cutter> BoltHoles = new List<Cutter>();
         public bool AllOk => Checks.All(c => c.Ok);
 
         public void Rule(bool ok, string item, string rule) => Checks.Add(new Check(ok, item, rule));
@@ -226,6 +231,19 @@ namespace SteelKit.Core
             return new Frame(origin, u, v, w);
         }
 
+        /// <summary>
+        /// Pengaku di antara sayap profil I (bidang XY, tebal arah Z) dengan potongan sudut (snipe) 45° di dua sudut
+        /// sisi badan, supaya tidak menabrak radius sudut profil (praktik umum: kaki snipe ≥ radius sudut).
+        /// </summary>
+        public Part SnipedStiffener(double x0, double x1, double y0, double y1, double z0, double z1, bool webAtY0, double snipe)
+        {
+            double c = Math.Max(0, Math.Min(snipe, Math.Min((x1 - x0) / 3, (y1 - y0) / 2)));
+            var pts = webAtY0
+                ? new List<Vec2> { new Vec2(x0 + c, y0), new Vec2(x1 - c, y0), new Vec2(x1, y0 + c), new Vec2(x1, y1), new Vec2(x0, y1), new Vec2(x0, y0 + c) }
+                : new List<Vec2> { new Vec2(x0, y0), new Vec2(x1, y0), new Vec2(x1, y1 - c), new Vec2(x1 - c, y1), new Vec2(x0 + c, y1), new Vec2(x0, y1 - c) };
+            return Prism(PartKind.Pengaku, "", new Frame(), Shapes.Filleted(pts, null), z0, z1);
+        }
+
         public Part Cylinder(PartKind k, string label, Vec3 baseCenter, Vec3 axis, double r, double len)
             => Prism(k, label, AxisFrame(baseCenter, axis), Shapes.Circle(0, 0, r), 0, len);
 
@@ -250,6 +268,8 @@ namespace SteelKit.Core
             Cylinder(PartKind.Baut, "", face - d * wHead, d, b.D / 2, len);
             Cylinder(PartKind.Ring, "", face + d * grip, d, b.WasherOD / 2, b.WasherT);
             Hex(PartKind.Mur, "", face + d * (grip + b.WasherT), d, b.Across, b.Nut);
+            // lubang di batang: diameter lubang baut, sepanjang jepitan (sedikit lebih supaya tembus bersih)
+            BoltHoles.Add(Cutter.Cyl(AxisFrame(face, d), Math.Max(b.Hole, b.D) / 2, -0.5, grip + 0.5));
             return len;
         }
 

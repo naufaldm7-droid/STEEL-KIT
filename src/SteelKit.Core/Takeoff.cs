@@ -83,6 +83,8 @@ namespace SteelKit.Core
     public class TakeoffMember
     {
         public string Handle, Section, Mark, Level, Category, Role;
+        /// <summary>Pola lubang & potongan ujung (lihat PartSignature): batang dengan pola berbeda mendapat marking berbeda.</summary>
+        public string Signature = "";
         public Family Family;
         public double LengthMm, KgPerM, PaintPerM;
     }
@@ -103,7 +105,9 @@ namespace SteelKit.Core
         /// <summary>Beri marking otomatis per kategori+profil+panjang (pengguna boleh menimpa).</summary>
         public static void AutoMark(List<TakeoffMember> ms)
         {
-            var groups = ms.GroupBy(m => (m.Role, m.Section, Math.Round(m.LengthMm))).OrderBy(g => g.Key.Role).ThenByDescending(g => g.First().KgPerM).ThenBy(g => g.Key.Item3).ToList();
+            // satu marking = bagian yang benar-benar sama di bengkel: peran, profil, panjang, dan pola lubang/potongan
+            var groups = ms.GroupBy(m => (m.Role, m.Section, Math.Round(m.LengthMm), m.Signature ?? "")).OrderBy(g => g.Key.Role).ThenByDescending(g => g.First().KgPerM)
+                .ThenBy(g => g.Key.Item3).ThenBy(g => g.Key.Item4.Length).ThenBy(g => g.Key.Item4, StringComparer.Ordinal).ToList();
             var counters = new Dictionary<string, int>();
             foreach (var g in groups)
             {

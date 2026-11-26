@@ -25,7 +25,9 @@ SmartScreen bisa meminta *More info* → *Run anyway*.
 | Pustaka profil | `SKPROFIL` | 476 ukuran: WF, H, UNP, CNP, Z, siku, T, hollow, pipa CHS/SCH40/SCH80/medium, plat, rod. Properti dihitung dari dimensi; ukuran bisa diubah dan ditambah. |
 | Batang | `SKBATANG`, `SKBATANG2D`, `SKUBAH`, `SKPUTAR` | Pratinjau saat menggambar, grip regang & putar, tetap benar setelah MOVE/ROTATE/COPY/MIRROR. |
 | Sambungan | `SKSAMBUNG`, `SKSAMBUNGAUTO` | 28 jenis bergambar teknik + rekomendasi pemakaian + cek jarak/ukuran minimum. Deteksi otomatis di titik temu; batang dipotong, diperpanjang, di-coping, dan **dipotong tegak rapat ke pelat** (lutut, puncak, kolom angin, las langsung) — tidak menembus, tidak bercelah. |
-| Gambar kerja | `SKLAYOUT`, `SKDETAIL` | Lembar struktur (isometrik, denah, tampak) berdimensi & leader, lembar detail sambungan dengan daftar bahan, skala standar otomatis. |
+| Gambar kerja | `SKLAYOUT`, `SKDETAIL` | Lembar struktur (isometrik, denah, tampak) dengan grid as, elevasi, marking, catatan umum, kotak judul lengkap, skala grafis; lembar detail sambungan dengan simbol las dan daftar bahan. |
+| Fabrikasi | `SKFABRIKASI` | Satu lembar per marking: tampak batang dengan lubang & potongan, dimensi dari ujung, daftar lubang, data marking. |
+| Cek tabrakan | `SKBENTROK` | Tabrakan 3D batang & sambungan, irisan digambar di layer `SK-BENTROK`. Baut dan rod mengebor lubang di batang. |
 | Kuantitas | `SKEXCEL`, `SKBERAT`, `SKLEVEL` | Excel bahasa Inggris, satuan metrik: batang, pelat, baut, angkur, las, cat. |
 | Browser | `SKBROWSER` | Palet kiri: level › kategori (struktur bawah/atas, atap, sekunder, sambungan), klik untuk memilih, edit properti langsung. |
 
@@ -67,8 +69,8 @@ python tools/smoke/run_smoke3.py          # kalimat -> batang -> sambungan -> la
 ```
 Butuh .NET SDK 10 dan Python 3. Paket NuGet `AutoCAD.NET` hanya referensi kompilasi.
 
-**Bukti uji 0.1.0:** 49 uji unit lolos (termasuk potongan rapat lutut/puncak pada kemiringan 0–25°); di AutoCAD 2026
-semua 28 jenis sambungan lolos, dan satu kalimat menghasilkan 54 batang → 174 sambungan (semua memenuhi aturan) →
-layout + 7 lembar detail → Excel ±17 t, tanpa crash.
+**Bukti uji 0.1.0:** 78 uji unit lolos; di AutoCAD 2026 satu kalimat menghasilkan 54 batang → 174 sambungan (semua
+memenuhi aturan) → layout + 7 lembar detail → 12 lembar fabrikasi → Excel ±17 t → **0 tabrakan 3D**, tanpa crash.
+Versi lain (2021–2025, 2027) dikompilasi terhadap API versi minimumnya; uji lapangan lihat `docs/UJI_PILOT.md`.
 
 Lisensi MIT © 2026 @nrozan

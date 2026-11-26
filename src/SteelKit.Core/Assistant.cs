@@ -49,12 +49,45 @@ namespace SteelKit.Core
             s = Regex.Replace(s, @"(\d),(\d)", "$1.$2");                       // 1,2 -> 1.2
             s = Regex.Replace(s, @"(\d)\s*koma\s*(\d)", "$1.$2");
             s = s.Replace("°", " derajat ").Replace("×", "x").Replace("meter", " m ").Replace("mtr", " m ");
-            // angka bertingkat: dua belas, dua puluh, dua puluh lima
-            s = Regex.Replace(s, @"\b(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan)\s+belas\b", m => (10 + NumberWords[m.Groups[1].Value]).ToString(CultureInfo.InvariantCulture));
-            s = Regex.Replace(s, @"\b(dua|tiga|empat|lima|enam|tujuh|delapan|sembilan)\s+puluh(\s+(satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan))?\b",
-                m => (10 * NumberWords[m.Groups[1].Value] + (m.Groups[3].Success ? NumberWords[m.Groups[3].Value] : 0)).ToString(CultureInfo.InvariantCulture));
-            s = Regex.Replace(s, @"\b(" + string.Join("|", NumberWords.Keys) + @")\b", m => NumberWords[m.Value].ToString(CultureInfo.InvariantCulture));
+            // angka yang diucapkan: "empat ratus", "seratus lima puluh", "dua puluh empat", "seribu dua ratus" -> angka
+            const string W = "nol|satu|dua|tiga|empat|lima|enam|tujuh|delapan|sembilan|sepuluh|sebelas|seratus|seribu|belas|puluh|ratus|ribu";
+            s = Regex.Replace(s, @"\b(?:" + W + @")(?:\s+(?:" + W + @"))*\b", m => SpokenNumbers(m.Value));
+            s = Regex.Replace(s, @"\bsetengah\b", "0.5");
+            s = Regex.Replace(s, @"(\d)\s*kali\s*(\d)", "$1x$2");                 // 150 kali 65 -> 150x65
             return s;
+        }
+
+        /// <summary>
+        /// Rangkaian kata bilangan -> angka. Dua satuan berurutan tanpa pengali ("dua tiga") dianggap dua angka terpisah.
+        /// </summary>
+        public static string SpokenNumbers(string words)
+        {
+            var units = new Dictionary<string, int> { ["nol"] = 0, ["satu"] = 1, ["dua"] = 2, ["tiga"] = 3, ["empat"] = 4, ["lima"] = 5, ["enam"] = 6, ["tujuh"] = 7, ["delapan"] = 8, ["sembilan"] = 9 };
+            var outp = new List<string>();
+            long total = 0, cur = 0; bool any = false, lastUnit = false;
+            void Flush() { if (any) outp.Add((total + cur).ToString(CultureInfo.InvariantCulture)); total = 0; cur = 0; any = false; lastUnit = false; }
+            foreach (var w in Regex.Split(words.Trim(), @"\s+"))
+            {
+                if (units.TryGetValue(w, out int u))
+                {
+                    if (lastUnit) Flush();
+                    cur += u; any = true; lastUnit = true; continue;
+                }
+                lastUnit = false;
+                switch (w)
+                {
+                    case "sepuluh": total += 10; any = true; break;
+                    case "sebelas": total += 11; any = true; break;
+                    case "seratus": total += 100; any = true; break;
+                    case "seribu": total += 1000; any = true; break;
+                    case "belas": total += 10 + cur; cur = 0; any = true; break;
+                    case "puluh": total += 10 * Math.Max(cur, 1); cur = 0; any = true; break;
+                    case "ratus": total += 100 * Math.Max(cur, 1); cur = 0; any = true; break;
+                    case "ribu": total = (total + Math.Max(cur, 1)) * 1000; cur = 0; any = true; break;
+                }
+            }
+            Flush();
+            return string.Join(" ", outp);
         }
 
         static List<Tok> Tokenize(string s)
@@ -62,7 +95,7 @@ namespace SteelKit.Core
             var toks = new List<Tok>();
             foreach (Match m in Regex.Matches(s, @"(?<prof>(?:wf|iwf|h|cnp|c|z|unp|l|siku|t|shs|rhs|chs|rd|pl|sch40-|sch80-|med-)\s?\d[\d.]*(?:x\d[\d.]*)*)|(?<dim>\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?)|(?<num>\d+(?:\.\d+)?)|(?<w>[a-z%]+)"))
             {
-                if (m.Groups["prof"].Success) toks.Add(new Tok { Kind = "P", Text = m.Value.Replace(" ", "") });
+                if (m.Groups["prof"].Success) toks.Add(new Tok { Kind = "P", Text = m.Value.Replace(" ", "").TrimEnd('.') });
                 else if (m.Groups["dim"].Success)
                 {
                     var p = Regex.Split(m.Value.Replace(" ", ""), "x");
@@ -105,6 +138,12 @@ namespace SteelKit.Core
             if (nums.Count >= keys.Length) return best[0];
             return pre == "WF" || pre == "H" || pre == "RD" ? best[0] : best[best.Count / 2];
         }
+
+        /// <summary>
+        /// Gording/girt diteruskan melewati rafter/kolom ujung (mm), supaya baut cleat ujung mengenai gording dengan jarak tepi
+        /// yang layak. Nilai tipikal praktik umum (ASSUMED), bisa diubah lewat grip.
+        /// </summary>
+        public const double Overhang = 100;
 
         public static AssistantPlan Parse(string sentence)
         {
@@ -260,16 +299,23 @@ namespace SteelKit.Core
                 double sp = Get(P("gording"), "jarak", 1200, plan, "Jarak gording");
                 double Hr = raf.Extent(false), Hp = g.Extent(false), c = Math.Cos(slope * Math.PI / 180), sn = Math.Sin(slope * Math.PI / 180);
                 double slopeLen = (mono ? span : span / 2) / c;
-                int n = (int)Math.Floor((slopeLen - 150) / sp) + 1;
+                // gording pertama di luar zona lutut (pelat ujung, baut, pengaku), bukan di atas kolom
+                double s0 = Math.Max(150, col.Extent(false) / 2 + 250);
+                // dibagi rata dari gording tepi sampai 150 mm dari puncak: jarak sebenarnya ≤ jarak yang diminta
+                double run = Math.Max(0, slopeLen - s0 - 150);
+                int n = (int)Math.Ceiling(run / sp - 1e-9) + 1;
+                double spU = n > 1 ? run / (n - 1) : 0;
+                plan.Assumptions.Add("Gording diteruskan " + Fmt.N(Overhang) + " mm melewati rafter ujung supaya baut cleat ujung kena gording");
+                if (n > 1 && spU < sp - 1) plan.Assumptions.Add("Jarak gording dibagi rata " + Fmt.N(Math.Round(spU)) + " mm (≤ " + Fmt.N(sp) + " mm), gording tepi " + Fmt.N(s0) + " mm dari as kolom di luar zona lutut");
                 foreach (int side in mono ? new[] { 1 } : new[] { 1, -1 })
                     for (int k = 0; k < n; k++)
                     {
-                        double s = 150 + k * sp;                 // dari eave sepanjang rafter
+                        double s = s0 + k * spU;                 // dari eave sepanjang rafter
                         double x0 = side > 0 ? 0 : span;
                         double x = x0 + side * s * c, z = h + s * sn;
                         double off = (Hr + Hp) / 2;
                         x += -side * off * sn; z += off * c;
-                        plan.Members.Add(new MemberProposal { Role = "Gording", Profile = g.Name, S = new Vec3(x, 0, z), E = new Vec3(x, L, z), Roll = side > 0 ? -slope : slope });
+                        plan.Members.Add(new MemberProposal { Role = "Gording", Profile = g.Name, S = new Vec3(x, -Overhang, z), E = new Vec3(x, L + Overhang, z), Roll = side > 0 ? -slope : slope });
                     }
             }
             if (prof.ContainsKey("girt") || P("girt").Count > 0)
@@ -279,7 +325,7 @@ namespace SteelKit.Core
                 double off = (col.Extent(false) + g.Extent(true)) / 2;
                 for (double z = 1200; z < h - 300; z += sp)
                     foreach (var x in new[] { -off, span + off })
-                        plan.Members.Add(new MemberProposal { Role = "Girt", Profile = g.Name, S = new Vec3(x, 0, z), E = new Vec3(x, L, z) });
+                        plan.Members.Add(new MemberProposal { Role = "Girt", Profile = g.Name, S = new Vec3(x, -Overhang, z), E = new Vec3(x, L + Overhang, z) });
             }
             if (prof.ContainsKey("bracing") || P("bracing").Count > 0)
             {
@@ -287,14 +333,18 @@ namespace SteelKit.Core
                 foreach (var (y0, y1) in frames > 2 ? new[] { (0.0, bay), (L - bay, L) } : new[] { (0.0, bay) })
                 {
                     // dinding: X di kedua sisi; atap: X di tiap paruh
+                    // dua rod X saling melewati di titik silang: digeser ±(d/2 + 0,5) tegak lurus bidang bracing supaya tidak saling menembus
+                    double e = b.Extent(true) / 2 + 0.5;
                     foreach (var x in new[] { 0.0, span })
                     {
-                        plan.Members.Add(new MemberProposal { Role = "Bracing", Profile = b.Name, S = new Vec3(x, y0, 500), E = new Vec3(x, y1, h - 500) });
-                        plan.Members.Add(new MemberProposal { Role = "Bracing", Profile = b.Name, S = new Vec3(x, y1, 500), E = new Vec3(x, y0, h - 500) });
+                        plan.Members.Add(new MemberProposal { Role = "Bracing", Profile = b.Name, S = new Vec3(x - e, y0, 500), E = new Vec3(x - e, y1, h - 500) });
+                        plan.Members.Add(new MemberProposal { Role = "Bracing", Profile = b.Name, S = new Vec3(x + e, y1, 500), E = new Vec3(x + e, y0, h - 500) });
                     }
                     double xr = mono ? span : span / 2;
-                    plan.Members.Add(new MemberProposal { Role = "Bracing", Profile = b.Name, S = new Vec3(300, y0, h + 300 * t), E = new Vec3(xr - 300, y1, h + (xr - 300) * t) });
-                    plan.Members.Add(new MemberProposal { Role = "Bracing", Profile = b.Name, S = new Vec3(300, y1, h + 300 * t), E = new Vec3(xr - 300, y0, h + (xr - 300) * t) });
+                    var nRoof = new Vec3(-t, 0, 1).Unit * e;   // normal bidang atap
+                    double rx = Math.Max(300, col.Extent(false) / 2 + 400);   // ujung bawah rod atap di luar zona baut lutut
+                    plan.Members.Add(new MemberProposal { Role = "Bracing", Profile = b.Name, S = new Vec3(rx, y0, h + rx * t) - nRoof, E = new Vec3(xr - 300, y1, h + (xr - 300) * t) - nRoof });
+                    plan.Members.Add(new MemberProposal { Role = "Bracing", Profile = b.Name, S = new Vec3(rx, y1, h + rx * t) + nRoof, E = new Vec3(xr - 300, y0, h + (xr - 300) * t) + nRoof });
                 }
             }
             int nc = plan.Members.Count(m => m.Role == "Kolom"), nr = plan.Members.Count(m => m.Role == "Rafter"), ng = plan.Members.Count(m => m.Role == "Gording");

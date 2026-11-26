@@ -95,7 +95,8 @@ namespace SteelKit.Acad
             {
                 Vec3? p = i == 0 ? r.TrimSupport : i == 1 ? r.TrimSupported : (Vec3?)null;
                 if (r.TrimMembers.TryGetValue(i, out Vec3 q)) p = q;
-                var cuts = i == 0 ? r.CutSupport : i == 1 ? r.CutSupported : null;
+                // pemotong khusus batang ini + lubang baut (hanya mengenai batang yang dilalui baut)
+                var cuts = (i == 0 ? r.CutSupport : i == 1 ? r.CutSupported : new List<Cutter>()).Concat(r.BoltHoles).ToList();
                 Vec3? shift = r.ShiftMembers.TryGetValue(i, out Vec3 sv) ? sv : (Vec3?)null;
                 if (p.HasValue || shift.HasValue || (cuts != null && cuts.Count > 0))
                     ConnDraw.TrimMember(tr, db, links[2 * i], links[2 * i + 1], p, fMm, cuts, shift);

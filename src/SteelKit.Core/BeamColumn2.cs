@@ -36,7 +36,7 @@ namespace SteelKit.Core
             foreach (var zl in levels)
                 foreach (int s in new[] { 1, -1 })
                 {
-                    var st = r.Box(PartKind.Pengaku, "", -Hc / 2 + tfc, Hc / 2 - tfc, s > 0 ? twc / 2 : -Bc / 2, s > 0 ? Bc / 2 : -twc / 2, zl - ts / 2, zl + ts / 2);
+                    var st = r.SnipedStiffener(-Hc / 2 + tfc, Hc / 2 - tfc, s > 0 ? twc / 2 : -Bc / 2, s > 0 ? Bc / 2 : -twc / 2, zl - ts / 2, zl + ts / 2, s > 0, Sec.R(col) + 5);
                     r.AddBoq("Pelat", "PL " + Fmt.N(Hc - 2 * tfc) + "x" + Fmt.N((Bc - twc) / 2) + "x" + Fmt.N(ts) + " (pengaku kolom)", 1, st.MassKg());
                 }
         }

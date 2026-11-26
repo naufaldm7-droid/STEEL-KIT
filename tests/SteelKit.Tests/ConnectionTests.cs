@@ -12,7 +12,7 @@ namespace SteelKit.Tests
         readonly ITestOutputHelper log;
         public ConnectionTests(ITestOutputHelper o) { log = o; }
 
-        static IEnumerable<Connection> Samples()
+        internal static IEnumerable<Connection> Samples()
         {
             yield return new BasePlate { Kolom = "H300x300x10x15", Pola = AnchorPattern.Luar4 };
             yield return new BasePlate { Kolom = "WF400x200x8x13", Pola = AnchorPattern.Dalam4, TipeAngkur = AnchorType.Berkepala, Angkur = BoltSize.M20 };

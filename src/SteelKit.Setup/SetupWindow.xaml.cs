@@ -20,6 +20,7 @@ namespace SteelKit.Setup
             var app = new Application();
             bool remove = args.Any(a => a.Equals("/lepas", StringComparison.OrdinalIgnoreCase) || a.Equals("/uninstall", StringComparison.OrdinalIgnoreCase));
             bool quiet = args.Any(a => a.Equals("/diam", StringComparison.OrdinalIgnoreCase) || a.Equals("/quiet", StringComparison.OrdinalIgnoreCase));
+            if (quiet && SetupWindow.AutoCadRunningPublic()) { Console.Error.WriteLine("AutoCAD masih terbuka. Tutup AutoCAD dulu, lalu jalankan penginstal lagi."); return 2; }
             if (quiet) { try { if (remove) SetupWindow.Uninstall(false); else SetupWindow.Install(null); return 0; } catch (Exception ex) { Console.Error.WriteLine(ex.Message); return 1; } }
             return app.Run(new SetupWindow(remove));
         }
@@ -94,6 +95,7 @@ namespace SteelKit.Setup
             return i < 0 ? "?" : t.Substring(i + 12, t.IndexOf('"', i + 12) - i - 12);
         }
 
+        public static bool AutoCadRunningPublic() => AutoCadRunning();
         static bool AutoCadRunning() => Process.GetProcessesByName("acad").Length > 0 || Process.GetProcessesByName("accoreconsole").Length > 0;
 
         async void OnMain(object s, RoutedEventArgs e)

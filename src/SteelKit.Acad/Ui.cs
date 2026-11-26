@@ -238,6 +238,8 @@ namespace SteelKit.Acad
                 "\n  SKBERAT      Daftar berat batang + bahan sambungan (tabel + CSV)" +
                 "\n  SKASISTEN    Asisten: ketik/ucapkan (Win+H) maksud Anda, periksa usulan batang, pasang (+ sambung otomatis)" +
                 "\n  SKBROWSER    Palet model: level, kategori, marking, edit properti batang & sambungan" +
+                "\n  SKFABRIKASI  Gambar fabrikasi per marking: tampak, lubang, dimensi dari ujung, daftar lubang" +
+                "\n  SKBENTROK    Cek tabrakan 3D batang & sambungan (irisan di layer SK-BENTROK)" +
                 "\n  SKLAYOUT     Layout otomatis: isometrik, denah, tampak + lembar detail sambungan (dimensi & leader)" +
                 "\n  SKEXCEL      Quantity takeoff ke Excel (Inggris, metrik): batang, pelat, baut, angkur, las, cat, grout" +
                 "\n  SKLEVEL      Tabel level untuk pengelompokan (mis. Base:0;Lt.2:4000;Atap:8000)" +
@@ -306,9 +308,11 @@ namespace SteelKit.Acad
             tab.Panels.Add(Panel("Sambungan",
                 Btn("Sambungan", "_SKSAMBUNG ", "sambungan", true, "Pilih jenis sambungan bergambar, atur pelat, baut, angkur, las."),
                 Btn("Sambung\nOtomatis", "_SKSAMBUNGAUTO ", "auto", true, "Buat semua sambungan rekomendasi di titik temu batang."),
-                Btn("Detail\n2D", "_SKDETAIL ", "detail", true, "Gambar detail sambungan: tampak, dimensi, catatan, daftar bahan.")));
+                Btn("Detail\n2D", "_SKDETAIL ", "detail", true, "Gambar detail sambungan: tampak, dimensi, catatan, daftar bahan."),
+                Btn("Cek\nTabrakan", "_SKBENTROK ", "bentrok", true, "Cek tabrakan 3D batang dan benda sambungan; irisannya digambar di layer SK-BENTROK.")));
             tab.Panels.Add(Panel("Gambar Kerja",
                 Btn("Layout\nOtomatis", "_SKLAYOUT ", "layout", true, "Lembar struktur (isometrik, denah, tampak) + lembar detail sambungan dengan dimensi dan leader."),
+                Btn("Gambar\nFabrikasi", "_SKFABRIKASI ", "fabrikasi", true, "Satu lembar per marking: tampak batang dengan lubang & potongan, dimensi dari ujung, daftar lubang, data marking."),
                 Btn("Excel\nQTO", "_SKEXCEL ", "excel", true, "Quantity takeoff ke Excel (bahasa Inggris, metrik): batang, pelat, baut, angkur, las, cat, grout."),
                 Btn("Level", "_SKLEVEL ", "level", false, "Atur tabel level (nama:elevasi) untuk pengelompokan.")));
             tab.Panels.Add(Panel("Data",
@@ -408,6 +412,8 @@ namespace SteelKit.Acad
                     case "layout": dc.DrawRectangle(Brushes.White, Edge, new System.Windows.Rect(2, 5, 28, 22)); dc.DrawRectangle(SteelLight, Edge, new System.Windows.Rect(5, 8, 10, 8)); dc.DrawRectangle(SteelLight, Edge, new System.Windows.Rect(17, 8, 10, 8)); dc.DrawRectangle(Steel, null, new System.Windows.Rect(19, 20, 9, 5)); break;
                     case "excel": dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(33, 115, 70)), Edge, new System.Windows.Rect(4, 3, 24, 26)); Text(dc, "X", 11, 6, 16); break;
                     case "level": foreach (var yy in new[] { 8.0, 16, 24 }) dc.DrawLine(new Pen(Steel, 2), new System.Windows.Point(4, yy), new System.Windows.Point(28, yy)); dc.DrawGeometry(Accent, null, Poly(4, 4, 10, 4, 7, 8)); break;
+                    case "fabrikasi": dc.DrawRectangle(Brushes.White, Edge, new System.Windows.Rect(2, 5, 28, 22)); dc.DrawRectangle(SteelLight, Edge, new System.Windows.Rect(5, 10, 22, 5)); foreach (var xx in new[] { 9.0, 15, 21 }) dc.DrawEllipse(Brushes.White, Edge, new System.Windows.Point(xx, 12.5), 1.3, 1.3); dc.DrawLine(new Pen(Steel, 1), new System.Windows.Point(5, 20), new System.Windows.Point(27, 20)); break;
+                    case "bentrok": dc.DrawRectangle(SteelLight, Edge, new System.Windows.Rect(3, 10, 16, 16)); dc.DrawRectangle(SteelLight, Edge, new System.Windows.Rect(13, 4, 16, 16)); dc.DrawRectangle(Accent, null, new System.Windows.Rect(13.5, 10.5, 5, 9)); break;
                     default: Circle(dc, "?"); break;
                 }
                 dc.Pop();
