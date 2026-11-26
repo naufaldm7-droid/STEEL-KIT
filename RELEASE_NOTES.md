@@ -9,6 +9,8 @@ gambar kerja & gambar fabrikasi → quantity takeoff Excel, dengan asisten bahas
    sekalian mengunduh model suara (±181 MB, sekali saja).
 3. Buka AutoCAD → tab ribbon **Steel Kit**, atau ketik `SKASISTEN`.
 
+Urutan kerja 8 langkah dan daftar semua perintah: [halaman Steel Kit › Urutan Desain](https://naufaldm7-droid.github.io/Gesture-3D-View-/steelkit/#urutan).
+
 Windows SmartScreen mungkin menampilkan "Windows protected your PC" karena penginstal belum bertanda tangan kode:
 klik *More info* → *Run anyway*. Copot kapan saja dari Pengaturan Windows › Aplikasi.
 
